@@ -4,7 +4,7 @@ import types
 import pytest
 
 from lllm.core.models import PROMPT_REGISTRY, Prompt, Message, FunctionCall, MCP
-from lllm.core.const import APITypes, Roles, find_model_card, Providers
+from lllm.core.const import APITypes, Roles, find_model_card, Invokers
 from lllm.llm import Prompts, register_prompt, Orchestrator
 from lllm.proxies import (
     BaseProxy,
@@ -13,8 +13,8 @@ from lllm.proxies import (
     ProxyRegistrator,
     load_builtin_proxies,
 )
-import lllm.providers as provider_module
-from lllm.providers.openai import OpenAIProvider
+import lllm.invokers as invoker_module
+from lllm.invokers.openai import OpenAIInvoker
 
 
 @pytest.fixture
@@ -114,7 +114,7 @@ def test_proxy_api_catalog_and_docs(proxy_registry_cleanup):
 
 def test_mcp_to_tool_and_validation():
     mcp = MCP(server_label="docs", server_url="https://example.com/mcp", require_approval="manual", allowed_tools=["search"])
-    tool = mcp.to_tool(Providers.OPENAI)
+    tool = mcp.to_tool(Invokers.OPENAI)
     assert tool["type"] == "mcp"
     assert tool["require_approval"] == "manual"
     assert tool["allowed_tools"] == ["search"]
@@ -123,15 +123,15 @@ def test_mcp_to_tool_and_validation():
         MCP(server_label="broken", server_url="https://example.com", require_approval="invalid")
 
 
-def test_openai_provider_build_tools_includes_mcp():
+def test_openai_invoker_build_tools_includes_mcp():
     mcp = MCP(server_label="kb", server_url="https://example.com/kb")
     prompt = Prompt(
         path="test/mcp/prompt",
         prompt="Hello",
         mcp_servers_list=[mcp],
     )
-    provider = OpenAIProvider.__new__(OpenAIProvider)
-    tools = provider._build_tools(prompt)
+    invoker = OpenAIInvoker.__new__(OpenAIInvoker)
+    tools = invoker._build_tools(prompt)
     assert any(tool.get("type") == "mcp" and tool["server_label"] == "kb" for tool in tools)
 
 
@@ -164,7 +164,7 @@ def test_agent_base_triggers_auto_discover(monkeypatch, tmp_path, prompt_registr
     monkeypatch.setattr(
         "lllm.core.agent.auto_discover_if_enabled", _fake_auto_discover, raising=True
     )
-    monkeypatch.setattr("lllm.core.agent.build_provider", lambda config: object())
+    monkeypatch.setattr("lllm.core.agent.build_invoker", lambda config: object())
 
     prompt = Prompt(path="mini/system", prompt="System prompt")
     register_prompt(prompt)
@@ -201,7 +201,7 @@ def test_agent_base_respects_auto_discover_flag(monkeypatch, tmp_path, prompt_re
     monkeypatch.setattr(
         "lllm.core.agent.auto_discover_if_enabled", _fake_auto_discover, raising=True
     )
-    monkeypatch.setattr("lllm.core.agent.build_provider", lambda config: object())
+    monkeypatch.setattr("lllm.core.agent.build_invoker", lambda config: object())
 
     prompt = Prompt(path="mini/system", prompt="System prompt")
     register_prompt(prompt)
@@ -231,7 +231,7 @@ def test_agent_base_respects_auto_discover_flag(monkeypatch, tmp_path, prompt_re
 
 
 def test_convert_dialog_handles_response_messages(monkeypatch):
-    provider = OpenAIProvider.__new__(OpenAIProvider)
+    invoker = OpenAIInvoker.__new__(OpenAIInvoker)
     tool_call = FunctionCall(id="call-1", name="echo", arguments={"value": "test"})
     dialog = types.SimpleNamespace(
         messages=[
@@ -253,7 +253,7 @@ def test_convert_dialog_handles_response_messages(monkeypatch):
         ]
     )
 
-    converted = provider._convert_dialog(dialog)
+    converted = invoker._convert_dialog(dialog)
     assert converted[0]["role"] == "assistant"
     assert converted[0]["tool_calls"][0]["function"]["name"] == "echo"
     assert converted[1]["role"] == "tool"
@@ -286,22 +286,22 @@ def test_proxy_respects_auto_discover_flag(monkeypatch, proxy_registry_cleanup):
     assert calls == [False]
 
 
-def test_provider_registry_custom_builder(monkeypatch):
-    class DummyProvider:
+def test_invoker_registry_custom_builder(monkeypatch):
+    class DummyInvoker:
         def __init__(self, cfg):
             self.cfg = cfg
 
     monkeypatch.setitem(
-        provider_module._PROVIDER_BUILDERS, "dummy", lambda cfg: DummyProvider(cfg)
+        invoker_module._PROVIDER_BUILDERS, "dummy", lambda cfg: DummyInvoker(cfg)
     )
-    config = {"provider": "dummy", "provider_config": {"token": "abc"}}
-    provider = provider_module.build_provider(config)
-    assert isinstance(provider, DummyProvider)
-    assert provider.cfg == {"token": "abc"}
+    config = {"invoker": "dummy", "invoker_config": {"token": "abc"}}
+    invoker = invoker_module.build_invoker(config)
+    assert isinstance(invoker, DummyInvoker)
+    assert invoker.cfg == {"token": "abc"}
 
 
-def test_provider_registry_unknown_name(monkeypatch):
-    monkeypatch.setitem(provider_module._PROVIDER_BUILDERS, "openai", lambda cfg: cfg)
-    config = {"provider": "missing"}
+def test_invoker_registry_unknown_name(monkeypatch):
+    monkeypatch.setitem(invoker_module._PROVIDER_BUILDERS, "openai", lambda cfg: cfg)
+    config = {"invoker": "missing"}
     with pytest.raises(KeyError):
-        provider_module.build_provider(config)
+        invoker_module.build_invoker(config)

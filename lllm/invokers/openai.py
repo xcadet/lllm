@@ -4,10 +4,10 @@ import openai
 from typing import Any, Dict, List, Optional
 
 from lllm.core.models import Message, Prompt, FunctionCall, AgentException, TokenLogprob
-from lllm.core.const import Roles, Modalities, APITypes, Providers, Features, find_model_card
-from lllm.providers.base import BaseProvider
+from lllm.core.const import Roles, Modalities, APITypes, Invokers, Features, find_model_card
+from lllm.invokers.base import BaseInvoker
 
-class OpenAIProvider(BaseProvider):
+class OpenAIInvoker(BaseInvoker):
     def __init__(self, config: Optional[Dict[str, Any]] = None):
         config = config or {}
         self._api_key = config.get("api_key") or os.getenv("OPENAI_API_KEY")
@@ -346,16 +346,16 @@ class OpenAIProvider(BaseProvider):
         )
 
     def stream(self, *args, **kwargs):
-        raise NotImplementedError("Streaming not yet implemented for OpenAIProvider")
+        raise NotImplementedError("Streaming not yet implemented for OpenAIInvoker")
 
     def _build_tools(self, prompt: Prompt) -> List[Dict[str, Any]]:
         tools: List[Dict[str, Any]] = []
         for func in prompt.functions.values():
-            tool = func.to_tool(Providers.OPENAI)
+            tool = func.to_tool(Invokers.OPENAI)
             if tool:
                 tools.append(tool)
         for server in prompt.mcp_servers.values():
-            tool = server.to_tool(Providers.OPENAI)
+            tool = server.to_tool(Invokers.OPENAI)
             if tool:
                 tools.append(tool)
         return tools

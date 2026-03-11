@@ -8,7 +8,7 @@ from lllm.core.const import (
     CompletionCost,
     ModelCard,
     MODEL_CARDS,
-    Providers,
+    Invokers,
     find_model_card,
 )
 
@@ -67,9 +67,9 @@ class Function(BaseModel):
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
-    def to_tool(self, provider: Providers):
-        # This logic might be moved to provider specific implementations later
-        if provider == Providers.OPENAI:
+    def to_tool(self, invoker: Invokers):
+        # This logic might be moved to invoker specific implementations later
+        if invoker == Invokers.OPENAI:
             return {
                 "type": "function",
                 "function": {
@@ -84,7 +84,7 @@ class Function(BaseModel):
                     "strict": self.strict
                 }
             }
-        raise NotImplementedError(f"Provider {provider} not supported for tool conversion yet")
+        raise NotImplementedError(f"Invoker {invoker} not supported for tool conversion yet")
 
     def link_function(self, function: Callable):
         self.function = function
@@ -119,8 +119,8 @@ class MCP(BaseModel):
             raise ValueError(f"require_approval must be one of {allowed}, got {value}")
         return value
 
-    def to_tool(self, provider: Providers):
-        if provider == Providers.OPENAI:
+    def to_tool(self, invoker: Invokers):
+        if invoker == Invokers.OPENAI:
             tool: Dict[str, Any] = {
                 "type": "mcp",
                 "server_label": self.server_label,

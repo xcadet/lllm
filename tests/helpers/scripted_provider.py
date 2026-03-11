@@ -4,11 +4,11 @@ from typing import Any, Dict, Iterable, List, Optional
 
 from lllm.core.const import APITypes, Roles
 from lllm.core.models import Message
-from lllm.providers.base import BaseProvider
+from lllm.invokers.base import BaseInvoker
 
 
-class ScriptedProvider(BaseProvider):
-    """Test helper provider that replays scripted responses and runs prompt parsers."""
+class ScriptedInvoker(BaseInvoker):
+    """Test helper invoker that replays scripted responses and runs prompt parsers."""
 
     def __init__(self, scripts: Iterable[Dict[str, Any]]):
         self._queue: List[Dict[str, Any]] = list(scripts)
@@ -27,7 +27,7 @@ class ScriptedProvider(BaseProvider):
         api_type: APITypes = APITypes.COMPLETION,
     ):
         if not self._queue:
-            raise AssertionError("ScriptedProvider received more calls than scripted responses")
+            raise AssertionError("ScriptedInvoker received more calls than scripted responses")
 
         script = self._queue.pop(0)
         self.call_count += 1
@@ -64,4 +64,4 @@ class ScriptedProvider(BaseProvider):
         )
 
     def stream(self, *args, **kwargs):
-        raise NotImplementedError("ScriptedProvider does not support streaming")
+        raise NotImplementedError("ScriptedInvoker does not support streaming")

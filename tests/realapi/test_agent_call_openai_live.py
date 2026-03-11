@@ -3,7 +3,7 @@ import pytest
 
 from lllm.core.const import APITypes, Roles
 from lllm.core.models import Function, Prompt
-from lllm.providers.openai import OpenAIProvider
+from lllm.invokers.openai import OpenAIInvoker
 from tests.helpers.agent_utils import make_agent
 
 
@@ -13,8 +13,8 @@ if not OPENAI_API_KEY:
     pytest.skip("OPENAI_API_KEY not configured for real API tests.", allow_module_level=True)
 
 
-def _build_openai_provider() -> OpenAIProvider:
-    return OpenAIProvider({})
+def _build_openai_invoker() -> OpenAIInvoker:
+    return OpenAIInvoker({})
 
 
 def _make_weather_tool():
@@ -40,7 +40,7 @@ def _make_weather_tool():
 
 
 def test_agent_call_openai_completion_live(log_config):
-    provider = _build_openai_provider()
+    invoker = _build_openai_invoker()
 
     system_prompt = Prompt(
         path="live/system",
@@ -51,7 +51,7 @@ def test_agent_call_openai_completion_live(log_config):
         prompt="Perform task: {task}",
     )
 
-    agent = make_agent(system_prompt, provider, log_config, model_args={"temperature": 0})
+    agent = make_agent(system_prompt, invoker, log_config, model_args={"temperature": 0})
     dialog = agent.init_dialog()
     dialog.send_message(task_prompt, {"task": "document the repo"})
 
@@ -68,7 +68,7 @@ def test_agent_call_openai_completion_live(log_config):
 
 def test_agent_call_openai_tool_flow_live(log_config):
     tool, calls = _make_weather_tool()
-    provider = _build_openai_provider()
+    invoker = _build_openai_invoker()
 
     system_prompt = Prompt(
         path="live/tool/system",
@@ -84,7 +84,7 @@ def test_agent_call_openai_tool_flow_live(log_config):
 
     agent = make_agent(
         system_prompt,
-        provider,
+        invoker,
         log_config,
         model_args={"tool_choice": {"type": "function", "function": {"name": "get_forecast"}}},
     )
@@ -103,7 +103,7 @@ def test_agent_call_openai_tool_flow_live(log_config):
 
 
 def test_agent_call_openai_response_api_live(log_config):
-    provider = _build_openai_provider()
+    invoker = _build_openai_invoker()
 
     system_prompt = Prompt(
         path="live/response/system",
@@ -116,7 +116,7 @@ def test_agent_call_openai_response_api_live(log_config):
 
     agent = make_agent(
         system_prompt,
-        provider,
+        invoker,
         log_config,
         model="gpt-4.1-mini",
         api_type=APITypes.RESPONSE,
@@ -137,7 +137,7 @@ def test_agent_call_openai_response_api_live(log_config):
 
 def test_agent_call_openai_response_tool_flow_live(log_config):
     tool, calls = _make_weather_tool()
-    provider = _build_openai_provider()
+    invoker = _build_openai_invoker()
 
     system_prompt = Prompt(
         path="live/response/tool/system",
@@ -154,7 +154,7 @@ def test_agent_call_openai_response_tool_flow_live(log_config):
 
     agent = make_agent(
         system_prompt,
-        provider,
+        invoker,
         log_config,
         model="gpt-4.1-mini",
         api_type=APITypes.RESPONSE,

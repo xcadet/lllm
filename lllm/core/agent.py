@@ -13,10 +13,10 @@ from lllm.core.models import Message, Prompt, FunctionCall, AgentException, Func
 from lllm.core.const import Roles, APITypes, find_model_card
 from lllm.core.dialog import Dialog
 from lllm.core.log import ReplayableLogBase, build_log_base
-from lllm.providers.base import BaseProvider
+from lllm.invokers.base import BaseInvoker
 import lllm.utils as U
 from lllm.core.discovery import auto_discover_if_enabled
-from lllm.providers import build_provider
+from lllm.invokers import build_invoker
 
 AGENT_REGISTRY: Dict[str, Type['Orchestrator']] = {}
 
@@ -53,7 +53,7 @@ class Agent:
     name: str # the role of the agent, or a name of the agent
     system_prompt: Prompt
     model: str # the latest snapshot of a model
-    llm_provider: BaseProvider
+    llm_invoker: BaseInvoker
     log_base: ReplayableLogBase   
     api_type: APITypes = APITypes.COMPLETION
     model_args: Dict[str, Any] = field(default_factory=dict) # additional args, like temperature, seed, etc.
@@ -68,7 +68,7 @@ class Agent:
         name (str): The name or role of the agent (e.g., 'assistant', 'coder').
         system_prompt (Prompt): The system prompt defining the agent's persona.
         model (str): The model identifier (e.g., 'gpt-4o').
-        llm_provider (BaseProvider): The provider instance for LLM calls.
+        llm_invoker (BaseInvoker): The invoker instance for LLM calls.
         log_base (ReplayableLogBase): Logger for recording interactions.
         model_args (Dict[str, Any]): Additional model arguments (temp, top_p, etc.).
         max_exception_retry (int): Max retries for agent exceptions.
@@ -154,7 +154,7 @@ class Agent:
                     _model_args = self.model_args.copy()
                     _model_args.update(args)
                     
-                    response = self.llm_provider.call(
+                    response = self.llm_invoker.call(
                         working_dialog,
                         current_prompt,
                         self.model,
@@ -266,8 +266,8 @@ class Orchestrator:
         self._log_base = build_log_base(config)
         self.agents = {}
         
-        # Initialize Provider via registry
-        self.llm_provider = build_provider(config)
+        # Initialize Invoker via registry
+        self.llm_invoker = build_invoker(config)
 
         for agent_name, model_config in self.agent_configs.items():
             model_config = model_config.copy()
@@ -290,7 +290,7 @@ class Orchestrator:
                 name=agent_name,
                 system_prompt=PROMPT_REGISTRY[system_prompt_path],
                 model=model_name,
-                llm_provider=self.llm_provider,
+                llm_invoker=self.llm_invoker,
                 api_type=api_type,
                 model_args=model_config,
                 log_base=self._log_base,

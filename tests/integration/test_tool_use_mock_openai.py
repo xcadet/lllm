@@ -2,7 +2,7 @@ import pytest
 
 from lllm.core.const import Roles
 from lllm.core.models import Function, Prompt
-from lllm.providers.openai import OpenAIProvider
+from lllm.invokers.openai import OpenAIInvoker
 from tests.helpers.agent_utils import make_agent
 from tests.helpers.mock_openai import MockOpenAIClient, text_completion, tool_call_completion
 
@@ -50,8 +50,8 @@ def test_tool_use_flow_with_mock_openai(monkeypatch, log_config):
 
     monkeypatch.setattr(openai, "OpenAI", fake_openai_client)
 
-    provider = OpenAIProvider({})
-    agent = make_agent(system_prompt, provider, log_config)
+    invoker = OpenAIInvoker({})
+    agent = make_agent(system_prompt, invoker, log_config)
 
     dialog = agent.init_dialog()
     dialog.send_message(task_prompt, {"city": "Tokyo"})

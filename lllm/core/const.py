@@ -36,10 +36,9 @@ class Roles(str, Enum):
             return 'developer'
         return self.value
 
-class Providers(str, Enum):
-    OPENAI = 'openai'
-    ANTHROPIC = 'anthropic'
-    GEMINI = 'gemini'
+class Invokers(str, Enum):
+    OPENAI = 'openai' # deprecated, raw OpenAI API invoker, use LITELLM instead
+    LITELLM = 'litellm'
 
 class Modalities(str, Enum):
     TEXT = 'text'
@@ -83,7 +82,7 @@ class CompletionCost(BaseModel):
 
 class ModelCard(BaseModel):
     name: str
-    provider: Providers
+    invoker: Invokers
     snapshots: List[Snapshot]
     max_tokens: int
     max_output_tokens: int
@@ -149,8 +148,8 @@ def load_model_cards_from_file(path: str):
     
     for model_data in data.get("models", []):
         # Convert string enums to Enum objects
-        if "provider" in model_data:
-            model_data["provider"] = Providers(model_data["provider"])
+        if "invoker" in model_data:
+            model_data["invoker"] = Invokers(model_data["invoker"])
         
         if "features" in model_data:
             model_data["features"] = [Features(f) for f in model_data["features"]]

@@ -4,12 +4,12 @@ import pytest
 
 from lllm.core.const import Roles, APITypes
 from lllm.core.models import Function, FunctionCall, Message, Prompt
-from lllm.providers.base import BaseProvider
+from lllm.invokers.base import BaseInvoker
 from tests.helpers.agent_utils import make_agent
 
 
-class FakeProvider(BaseProvider):
-    """Provider that returns preseeded Message objects for each call."""
+class FakeInvoker(BaseInvoker):
+    """Invoker that returns preseeded Message objects for each call."""
 
     def __init__(self, responses):
         self._responses = list(responses)
@@ -26,7 +26,7 @@ class FakeProvider(BaseProvider):
         api_type=APITypes.COMPLETION,
     ):
         if not self._responses:
-            raise AssertionError("FakeProvider received more calls than responses")
+            raise AssertionError("FakeInvoker received more calls than responses")
         response = self._responses.pop(0)
         return response
 
@@ -38,7 +38,7 @@ def test_agent_call_returns_message_without_tools(log_config):
     system_prompt = Prompt(path="tests/system", prompt="You are a tester.")
     query_prompt = Prompt(path="tests/query", prompt="User task: {task}")
 
-    provider = FakeProvider(
+    invoker = FakeInvoker(
         [
             Message(
                 role=Roles.ASSISTANT,
@@ -49,7 +49,7 @@ def test_agent_call_returns_message_without_tools(log_config):
         ]
     )
 
-    agent = make_agent(system_prompt, provider, log_config)
+    agent = make_agent(system_prompt, invoker, log_config)
     dialog = agent.init_dialog()
     dialog.send_message(query_prompt, {"task": "demo"})
 
@@ -93,8 +93,8 @@ def test_agent_call_executes_registered_function(log_config):
         model="gpt-4o-mini",
     )
 
-    provider = FakeProvider([tool_call_message, final_message])
-    agent = make_agent(system_prompt, provider, log_config)
+    invoker = FakeInvoker([tool_call_message, final_message])
+    agent = make_agent(system_prompt, invoker, log_config)
 
     dialog = agent.init_dialog()
     dialog.send_message(task_prompt, {"task": "use the tool"})
@@ -144,8 +144,8 @@ def test_agent_call_uses_tool_role_for_response_api(log_config):
         api_type=APITypes.RESPONSE,
     )
 
-    provider = FakeProvider([tool_call_message, final_message])
-    agent = make_agent(system_prompt, provider, log_config)
+    invoker = FakeInvoker([tool_call_message, final_message])
+    agent = make_agent(system_prompt, invoker, log_config)
     dialog = agent.init_dialog()
     dialog.send_message(task_prompt, {"task": "run shout"})
 

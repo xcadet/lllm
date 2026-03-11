@@ -4,7 +4,7 @@ from typing import Any, Dict, Generator, Optional
 from lllm.core.const import APITypes
 from lllm.core.models import Message, Prompt
 
-class BaseProvider(ABC):
+class BaseInvoker(ABC):
     @abstractmethod
     def call(
         self,

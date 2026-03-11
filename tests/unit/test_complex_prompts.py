@@ -6,9 +6,9 @@ import pytest
 
 from lllm.core.const import APITypes, Features, ParseError, Roles
 from lllm.core.models import Function, FunctionCall, Message, Prompt
-from lllm.providers.openai import OpenAIProvider
+from lllm.invokers.openai import OpenAIInvoker
 from tests.helpers.agent_utils import make_agent
-from tests.helpers.scripted_provider import ScriptedProvider
+from tests.helpers.scripted_invoker import ScriptedInvoker
 
 
 def _proposition_tree_parser(message: str, current_nodes: list[str]):
@@ -83,23 +83,23 @@ def test_agent_recovers_from_parser_error_and_uses_exception_prompt(log_config):
         """
     ).strip()
 
-    provider = ScriptedProvider(
+    invoker = ScriptedInvoker(
         [
             {"content": bad_payload},
             {"content": good_payload},
         ]
     )
 
-    agent = make_agent(system_prompt, provider, log_config)
+    agent = make_agent(system_prompt, invoker, log_config)
 
     dialog = agent.init_dialog()
     dialog.send_message(analyze_prompt, {"topic": "Emerging market resilience"}, role=Roles.USER)
 
     response, dialog, interrupts = agent.call(dialog, parser_args={"current_nodes": ["P0"]})
 
-    assert provider.call_count == 2, "Agent should retry once after parser failure"
-    assert provider.errors[0], "First call should record a parser error"
-    assert "one and only one JSON block" in str(provider.errors[0][0])
+    assert invoker.call_count == 2, "Agent should retry once after parser failure"
+    assert invoker.errors[0], "First call should record a parser error"
+    assert "one and only one JSON block" in str(invoker.errors[0][0])
     assert response.parsed["root"] == "P0"
     assert response.parsed["nodes"]["P0"]["children"]["P1"].startswith("Growth")
     assert interrupts == []
@@ -147,15 +147,15 @@ def test_agent_surfaces_duplicate_tool_call_warning(log_config):
         {"role": Roles.ASSISTANT, "content": "All done."},
     ]
 
-    provider = ScriptedProvider(scripts)
-    agent = make_agent(system_prompt, provider, log_config)
+    invoker = ScriptedInvoker(scripts)
+    agent = make_agent(system_prompt, invoker, log_config)
 
     dialog = agent.init_dialog()
     dialog.send_message(task_prompt, {"value": "alpha"})
 
     response, dialog, interrupts = agent.call(dialog)
 
-    assert provider.call_count == 3
+    assert invoker.call_count == 3
     assert response.content == "All done."
     assert calls == ["alpha"]
     assert len(interrupts) == 1, "Duplicate tool calls should not append new interrupts"
@@ -206,8 +206,8 @@ def test_response_api_tool_results_emit_user_role(log_config):
         },
     ]
 
-    provider = ScriptedProvider(scripts)
-    agent = make_agent(system_prompt, provider, log_config, api_type=APITypes.RESPONSE)
+    invoker = ScriptedInvoker(scripts)
+    agent = make_agent(system_prompt, invoker, log_config, api_type=APITypes.RESPONSE)
 
     dialog = agent.init_dialog()
     dialog.send_message(task_prompt, {"symbol": "XYZ"})
@@ -231,7 +231,7 @@ def test_response_api_includes_search_and_computer_tools(monkeypatch):
             self.base_url = None
 
     stub_card = StubCard()
-    monkeypatch.setattr("lllm.providers.openai.find_model_card", lambda model: stub_card)
+    monkeypatch.setattr("lllm.invokers.openai.find_model_card", lambda model: stub_card)
 
     class FakeUsage:
         def __init__(self, payload):
@@ -258,12 +258,12 @@ def test_response_api_includes_search_and_computer_tools(monkeypatch):
             self.last_kwargs = kwargs
             return self.response
 
-    provider = OpenAIProvider.__new__(OpenAIProvider)
+    invoker = OpenAIInvoker.__new__(OpenAIInvoker)
     fake_response = FakeResponse()
     recorder = RecordingResponses(fake_response)
-    provider.client = SimpleNamespace(responses=recorder)
-    provider.together_client = None
-    provider._api_key = "sk-test"
+    invoker.client = SimpleNamespace(responses=recorder)
+    invoker.together_client = None
+    invoker._api_key = "sk-test"
 
     prompt = Prompt(
         path="response/search",
@@ -279,7 +279,7 @@ def test_response_api_includes_search_and_computer_tools(monkeypatch):
         ]
     )
 
-    message = provider.call(
+    message = invoker.call(
         dialog,
         prompt,
         model="response-model",

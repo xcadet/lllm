@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 
 from lllm.core.models import Function, Prompt
-from lllm.providers.openai import OpenAIProvider
+from lllm.invokers.openai import OpenAIInvoker
 from tests.helpers.agent_utils import make_agent
 from tests.helpers.mock_openai import MockOpenAIClient, load_recorded_completions
 
@@ -47,8 +47,8 @@ def test_tool_use_with_recorded_payload(monkeypatch, log_config):
 
     monkeypatch.setattr(openai, "OpenAI", fake_client)
 
-    provider = OpenAIProvider({})
-    agent = make_agent(system_prompt, provider, log_config)
+    invoker = OpenAIInvoker({})
+    agent = make_agent(system_prompt, invoker, log_config)
 
     dialog = agent.init_dialog()
     dialog.send_message(task_prompt, {"city": "Berlin"})
