@@ -132,13 +132,13 @@ class Proxy:
         *,
         auto_discover: Optional[bool] = None,
     ):
-        self.activate_proxies = activate_proxies or []
-        self.cutoff_date = cutoff_date
-        self.deploy_mode = deploy_mode
-        
         self._auto_discover_flag = auto_discover
         self._context = context or get_default_context()
         auto_discover_if_enabled(auto_discover, context=self._context)
+
+        self.activate_proxies = activate_proxies or []
+        self.cutoff_date = cutoff_date
+        self.deploy_mode = deploy_mode
         self._load_registered_proxies()
 
     def _load_registered_proxies(self):

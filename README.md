@@ -32,9 +32,9 @@ It also tries to make the code plain, compact, easy-to-understand, with less unn
 
 ## Design Thoughts
 
- - **Functional Design**: Parsing as core, agent as a function, agent call makes it as more deterministic and stable as possible
- - **Dialog Tree as State**: Dialog is the only state, top prompt is always the parser of the next LLM response, i.e. top prompt is the "immediate function caller"
- - **Declarative Design**: Declaration is in the first place, use a config file declaration to declare the organization of the system and configurations (which are reconfigurable). 
+- Functional Design: Agent as a function — parsing defines the return type, the agent call loop enforces it.
+- Dialog Tree as State: Dialog is the shared workspace (blackboard) that agents, tools, and users collectively build. top_prompt is the calling convention for the next turn. Forking creates branches for speculation and recovery.
+- Declarative Design: System shape is declared in config, not hardcoded. What exists (prompts, proxies) and how it's wired (agent configs) are expressed as data.
 
 
 
@@ -159,8 +159,8 @@ pytest tests/
 
 ## v0.1.0 Refactoring 
 - [x] Refactor providers system: LiteLLM invoker (invokers/)
-- [ ] -> Refactor registry to context (context.py), and discovery system (discovery.py)
-- [ ] Refactor message and prompt model, prompt management (models.py)
+- [x] Refactor registry to context (context.py), and discovery system (discovery.py)
+- [ ] -> Refactor message and prompt model, prompt management (models.py)
 - [ ] Refactor dialog model/state management, better arg passing (dialog.py)
 - [ ] Refactor agent model, orchestrator, agent call (agent.py)
 - [ ] Refactor config system (config.py, lllm.toml)
