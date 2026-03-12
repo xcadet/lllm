@@ -5,7 +5,7 @@ import pytest
 
 from lllm.core.models import PROMPT_REGISTRY, Prompt, Message, FunctionCall, MCP
 from lllm.core.const import APITypes, Roles, Invokers
-from lllm.llm import Prompts, register_prompt, Orchestrator
+from lllm.core.agent import Prompts, register_prompt, Orchestrator
 from lllm.proxies import (
     BaseProxy,
     Proxy,
@@ -253,7 +253,7 @@ def test_prompts_auto_discover_flag(monkeypatch, prompt_registry_cleanup):
     def _fake_auto_discover(flag=None, **_):
         calls.append(flag)
 
-    monkeypatch.setattr("lllm.llm.auto_discover_if_enabled", _fake_auto_discover, raising=True)
+    monkeypatch.setattr("lllm.core.discovery.auto_discover_if_enabled", _fake_auto_discover, raising=True)
     helper = Prompts("test", auto_discover=False)
     with pytest.raises(KeyError):
         helper("missing")

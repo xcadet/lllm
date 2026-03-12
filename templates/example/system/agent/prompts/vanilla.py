@@ -1,4 +1,4 @@
-from lllm.models import Prompt
+from lllm.core.models import Prompt
 from pydantic import BaseModel
 
 

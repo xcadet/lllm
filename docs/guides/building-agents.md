@@ -62,7 +62,7 @@ Add the proxy folder to `lllm.toml`. Update your prompt to define `Function` obj
 Subclass `Orchestrator` (or reuse the example `Vanilla` agent) under `system/agent/agent.py`.
 
 ```python
-from lllm.llm import Orchestrator, Prompts
+from lllm.core.agent import Orchestrator, Prompts
 
 class ResearchAgent(Orchestrator):
     agent_type = "research"

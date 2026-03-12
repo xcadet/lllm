@@ -26,7 +26,7 @@ Inside `lllm/` the high-level structure is:
 ## Runtime Flow
 
 1. **Configuration & discovery** – `lllm.auto_discover()` runs on import. It reads `lllm.toml` (or `$LLLM_CONFIG`) to find prompt and proxy folders, imports every module inside, and registers any `Prompt` or `BaseProxy` subclasses it encounters. Environment variables let you opt-out (`LLLM_AUTO_DISCOVER=0`).
-2. **System bootstrap** – A system (see `template/init_template/system/system.py`) constructs an agent via `lllm.llm.build_agent`, passing the YAML configuration, checkpoint directory, and a stream/logger implementation.
+2. **System bootstrap** – A system (see `template/init_template/system/system.py`) constructs an agent via `lllm.core.agent.build_agent`, passing the YAML configuration, checkpoint directory, and a stream/logger implementation.
 3. **Agent call loop** – `Agent.call` seeds a dialog with its system prompt, loads an invocation prompt, and drives the deterministic agent-call state machine until it yields a parsed response or an exception.
 4. **Prompt handlers** – If the response contains errors, exception handlers rewrite the dialog and retry. If the response triggers function calls, interrupt handlers inject tool results and continue the loop.
 5. **Proxy execution** – When tool/function calls target external APIs, they go through the `Proxy` runtime. Proxy modules describe endpoints declaratively using decorators so that agents can enumerate available tools and call them uniformly.

@@ -1,7 +1,7 @@
 from enum import Enum
 from typing import Any, Dict
 
-from lllm.llm import Orchestrator, Prompts, build_agent
+from lllm.core.agent import Orchestrator, Prompts, build_agent
 
 PROMPT_ROOT = "{{project_name}}"
 
