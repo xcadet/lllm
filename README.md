@@ -146,9 +146,12 @@ pytest tests/
 # Roadmap
 
 ## v0.1.0 Refactoring 
-- [ ] -> Refactor providers system: LiteLLM invoker
-- [ ] Configuration system
-- [ ] Proxy-based tool-calling, mini in-dialog interpreter
+- [x] Refactor providers system: LiteLLM invoker (invokers/)
+- [ ] -> Refactor message and prompt model, prompt management (models.py)
+- [ ] Refactor dialog model/state management (dialog.py)
+- [ ] Refactor agent model, orchestrator, agent call, and config system (agent.py & config.py)
+- [ ] Refactor initialization and discovery system (discovery.py)
+- [ ] Proxy-based tool-calling, mini in-dialog interpreter (proxies/, sandbox/)
 
 ## Future Roadmap
 - [ ] Gradient mode for tuning/training

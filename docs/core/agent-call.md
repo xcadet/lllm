@@ -2,6 +2,8 @@
 
 Agent calls are the defining concept of LLLM. Instead of exposing raw LLM completions, every agent implements a deterministic state machine that **must** transition from an initial dialog to a well-defined output state (or raise an error). This contract keeps downstream systems simple—no consumer needs to guess whether the model "felt done".
 
+A core philosophy of LLLM is to treat the agent as a "function", and the goal of the agent call is to make it as stable and deterministic as possible.
+
 ![Agent call state machine](../assets/agent_call.png)
 
 ## LLM Call vs. Agent Call
