@@ -6,6 +6,7 @@ from lllm.core.models import Message, Prompt, InvokeCost
 from lllm.core.const import Roles, Modalities, RCollections
 from lllm.core.log import ReplayableLogBase
 import lllm.utils as U
+from lllm.core.context import Context, get_default_context
 
 @dataclass
 class Dialog:
@@ -43,14 +44,13 @@ class Dialog:
         }
 
     @classmethod
-    def from_dict(cls, d: dict, log_base: ReplayableLogBase, prompt_registry: Dict[str, Prompt]):
+    def from_dict(cls, d: dict, log_base: ReplayableLogBase, context: Context = None):
         top_prompt_path = d['top_prompt_path']
+        context = context or get_default_context()
         if top_prompt_path is not None:
-            # Assuming PROMPT_REGISTRY is available or passed. 
-            # For now, we rely on the passed prompt_registry.
-            top_prompt = prompt_registry.get(top_prompt_path)
+            top_prompt = context.get_prompt(top_prompt_path)
             if top_prompt is None:
-                 print(f"Warning: Prompt {top_prompt_path} not found in registry.")
+                 print(f"Warning: Prompt {top_prompt_path} not found in context.")
         else:
             top_prompt = None
         return cls(

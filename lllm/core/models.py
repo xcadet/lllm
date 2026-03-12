@@ -9,6 +9,8 @@ from lllm.core.const import (
     Invokers,
 )
 import re
+from lllm.core.context import get_default_context
+
 
 class AgentException(Exception):
     def __init__(self, message: str, context: str = ""):
@@ -347,13 +349,8 @@ class Prompt(BaseModel):
         )
 
 
-PROMPT_REGISTRY: Dict[str, Prompt] = {}
-
-def register_prompt(prompt: Prompt):
-    if prompt.path in PROMPT_REGISTRY:
-        # print(f"Warning: Prompt {prompt.path} already registered. Overwriting.")
-        pass
-    PROMPT_REGISTRY[prompt.path] = prompt
+def register_prompt(prompt: Prompt, overwrite: bool = True):
+    get_default_context().register_prompt(prompt, overwrite)
 
 # to handle the dynamic fields in Message model, e.g., execution_attempts: List['Message']
 Message.model_rebuild()

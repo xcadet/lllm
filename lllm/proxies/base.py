@@ -3,6 +3,8 @@ import functools as ft
 import datetime as dt
 from typing import Dict, Any, List, Optional, Callable
 import lllm.utils as U
+from lllm.core.context import Context, get_default_context
+
 
 class BaseProxy:
     """Base class for describing an API surface that agents can call as tools."""
@@ -155,7 +157,7 @@ class Proxy:
         self._load_registered_proxies()
 
     def _load_registered_proxies(self):
-        for name, proxy_cls in PROXY_REGISTRY.items():
+        for name, proxy_cls in self._context.proxies.items():
             if self.activate_proxies and name not in self.activate_proxies:
                 continue
             try:
@@ -264,19 +266,12 @@ class Proxy:
         handler = getattr(proxy, func_name)
         return handler(*args, **kwargs)
 
-PROXY_REGISTRY: Dict[str, Any] = {}
-
-def register_proxy(name: str, proxy_cls: Any, overwrite: bool = False):
-    if name in PROXY_REGISTRY and not overwrite:
-        raise ValueError(f"Proxy {name} already registered")
-    PROXY_REGISTRY[name] = proxy_cls
-
-
-def ProxyRegistrator(path: str, name: str, description: str):
+def ProxyRegistrator(path: str, name: str, description: str, context: Context = None):
+    ctx = context or get_default_context()
     def decorator(cls):
         cls._proxy_path = path
         cls._proxy_name = name
         cls._proxy_description = description
-        register_proxy(path, cls, overwrite=True)
+        ctx.register_proxy(path, cls, overwrite=True)
         return cls
     return decorator

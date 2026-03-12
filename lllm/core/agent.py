@@ -17,8 +17,8 @@ from lllm.invokers.base import BaseInvoker, BaseStreamHandler
 import lllm.utils as U
 from lllm.core.discovery import auto_discover_if_enabled
 from lllm.invokers import build_invoker
+from lllm.core.context import Context, get_default_context
 
-AGENT_REGISTRY: Dict[str, Type['Orchestrator']] = {}
 
 def _normalize_agent_type(agent_type):
     if isinstance(agent_type, Enum) or (isinstance(agent_type, type) and issubclass(agent_type, Enum)):
@@ -28,24 +28,26 @@ def _normalize_agent_type(agent_type):
     else:
         raise ValueError(f"Invalid agent type: {agent_type}")
 
-def register_agent_class(agent_cls: Type['Orchestrator']) -> Type['Orchestrator']:
+def register_agent_class(agent_cls: Type['Orchestrator'], context: Context = None) -> Type['Orchestrator']:
+    ctx = context or get_default_context()
     agent_type = _normalize_agent_type(getattr(agent_cls, 'agent_type', None))
     assert agent_type not in (None, ''), f"Agent class {agent_cls.__name__} must define `agent_type`"
-    if agent_type in AGENT_REGISTRY and AGENT_REGISTRY[agent_type] is not agent_cls:
-        raise ValueError(f"Agent type '{agent_type}' already registered with {AGENT_REGISTRY[agent_type].__name__}")
-    AGENT_REGISTRY[agent_type] = agent_cls
+    if agent_type in ctx.agents and ctx.agents[agent_type] is not agent_cls:
+        raise ValueError(f"Agent type '{agent_type}' already registered with {ctx.agents[agent_type].__name__}")
+    ctx.register_agent(agent_type, agent_cls)
     return agent_cls
 
-def get_agent_class(agent_type: str) -> Type['Orchestrator']:
-    if agent_type not in AGENT_REGISTRY:
-        raise KeyError(f"Agent type '{agent_type}' not found. Registered: {list(AGENT_REGISTRY.keys())}")
-    return AGENT_REGISTRY[agent_type]
+def get_agent_class(agent_type: str, context: Context = None) -> Type['Orchestrator']:
+    ctx = context or get_default_context()
+    if agent_type not in ctx.agents:
+        raise KeyError(f"Agent type '{agent_type}' not found. Registered: {list(ctx.agents.keys())}")
+    return ctx.agents[agent_type]
 
-def build_agent(config: Dict[str, Any], ckpt_dir: str, stream, agent_type: str = None, **kwargs) -> 'Orchestrator':
+def build_agent(config: Dict[str, Any], ckpt_dir: str, stream, agent_type: str = None, context: Context = None, **kwargs) -> 'Orchestrator':
     if agent_type is None:
         agent_type = config.get('agent_type')
     agent_type = _normalize_agent_type(agent_type)
-    agent_cls = get_agent_class(agent_type)
+    agent_cls = get_agent_class(agent_type, context)
     return agent_cls(config, ckpt_dir, stream, **kwargs)
 
 @dataclass
@@ -239,7 +241,8 @@ class Orchestrator:
         if register:
             register_agent_class(cls)
 
-    def __init__(self, config: Dict[str, Any], ckpt_dir: str, stream = None):
+    def __init__(self, config: Dict[str, Any], ckpt_dir: str, stream = None, context: Optional[Context] = None):
+        self._context = context or get_default_context()
         auto_discover_if_enabled(config.get("auto_discover"))
         if stream is None:
             stream = U.PrintSystem()
@@ -256,8 +259,8 @@ class Orchestrator:
         self.ckpt_dir = ckpt_dir
         self._log_base = build_log_base(config)
         self.agents = {}
-        
-        # Initialize Invoker via registry
+
+        # Initialize Invoker via context
         self.llm_invoker = build_invoker(config)
 
         for agent_name, model_config in self.agent_configs.items():
@@ -270,15 +273,9 @@ class Orchestrator:
             else:
                 api_type = APITypes(api_type_value)
             
-            # We assume PROMPT_REGISTRY is available globally or passed. 
-            # This is a bit of a dependency issue. 
-            # Ideally, prompts should be loaded/registered before Agent initialization.
-            # For now, we'll assume the user registers prompts before creating agents.
-            from lllm.core.models import PROMPT_REGISTRY
-            
             self.agents[agent_name] = Agent(
                 name=agent_name,
-                system_prompt=PROMPT_REGISTRY[system_prompt_path],
+                system_prompt=self._context.get_prompt(system_prompt_path),
                 model=self.model,
                 llm_invoker=self.llm_invoker,
                 api_type=api_type,
