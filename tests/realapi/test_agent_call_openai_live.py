@@ -3,7 +3,7 @@ import pytest
 
 from lllm.core.const import APITypes, Roles
 from lllm.core.models import Function, Prompt
-from lllm.invokers.openai import OpenAIInvoker
+from lllm.invokers.litellm import LiteLLMInvoker
 from tests.helpers.agent_utils import make_agent
 
 
@@ -13,8 +13,8 @@ if not OPENAI_API_KEY:
     pytest.skip("OPENAI_API_KEY not configured for real API tests.", allow_module_level=True)
 
 
-def _build_openai_invoker() -> OpenAIInvoker:
-    return OpenAIInvoker({})
+def _build_litellm_invoker() -> LiteLLMInvoker:
+    return LiteLLMInvoker({})
 
 
 def _make_weather_tool():
@@ -40,7 +40,7 @@ def _make_weather_tool():
 
 
 def test_agent_call_openai_completion_live(log_config):
-    invoker = _build_openai_invoker()
+    invoker = _build_litellm_invoker()
 
     system_prompt = Prompt(
         path="live/system",
@@ -68,7 +68,7 @@ def test_agent_call_openai_completion_live(log_config):
 
 def test_agent_call_openai_tool_flow_live(log_config):
     tool, calls = _make_weather_tool()
-    invoker = _build_openai_invoker()
+    invoker = _build_litellm_invoker()
 
     system_prompt = Prompt(
         path="live/tool/system",
@@ -103,7 +103,7 @@ def test_agent_call_openai_tool_flow_live(log_config):
 
 
 def test_agent_call_openai_response_api_live(log_config):
-    invoker = _build_openai_invoker()
+    invoker = _build_litellm_invoker()
 
     system_prompt = Prompt(
         path="live/response/system",
@@ -137,7 +137,7 @@ def test_agent_call_openai_response_api_live(log_config):
 
 def test_agent_call_openai_response_tool_flow_live(log_config):
     tool, calls = _make_weather_tool()
-    invoker = _build_openai_invoker()
+    invoker = _build_litellm_invoker()
 
     system_prompt = Prompt(
         path="live/response/tool/system",
@@ -175,5 +175,5 @@ def test_agent_call_openai_response_tool_flow_live(log_config):
     assert interrupts[0].result == "Berlin:fahrenheit"
     assert response.api_type == APITypes.RESPONSE
     assert "berlin" in (response.content or "").lower()
-    tool_messages = [msg for msg in dialog.messages if msg.role == Roles.USER and msg.creator == "function"]
+    tool_messages = [msg for msg in dialog.messages if msg.role == Roles.USER and msg.name == "function"]
     assert tool_messages, "Response API tool outputs should surface as user-role entries"

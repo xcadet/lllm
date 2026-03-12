@@ -42,7 +42,7 @@ def test_agent_call_returns_message_without_tools(log_config):
         [
             Message(
                 role=Roles.ASSISTANT,
-                creator="assistant",
+                name="assistant",
                 content="All done!",
                 model="gpt-4o-mini",
             )
@@ -79,7 +79,7 @@ def test_agent_call_executes_registered_function(log_config):
 
     tool_call_message = Message(
         role=Roles.TOOL_CALL,
-        creator="assistant",
+        name="assistant",
         content="Calling echo",
         function_calls=[
             FunctionCall(id=str(uuid.uuid4()), name="echo", arguments={"value": "foo"})
@@ -88,7 +88,7 @@ def test_agent_call_executes_registered_function(log_config):
     )
     final_message = Message(
         role=Roles.ASSISTANT,
-        creator="assistant",
+        name="assistant",
         content="Tool results processed.",
         model="gpt-4o-mini",
     )
@@ -128,7 +128,7 @@ def test_agent_call_uses_tool_role_for_response_api(log_config):
 
     tool_call_message = Message(
         role=Roles.TOOL_CALL,
-        creator="assistant",
+        name="assistant",
         content="Calling shout",
         function_calls=[
             FunctionCall(id="call_123", name="shout", arguments={"value": "ping"})
@@ -138,7 +138,7 @@ def test_agent_call_uses_tool_role_for_response_api(log_config):
     )
     final_message = Message(
         role=Roles.ASSISTANT,
-        creator="assistant",
+        name="assistant",
         content="Done.",
         model="gpt-4o-mini",
         api_type=APITypes.RESPONSE,

@@ -4,7 +4,7 @@ import types
 import pytest
 
 from lllm.core.models import PROMPT_REGISTRY, Prompt, Message, FunctionCall, MCP
-from lllm.core.const import APITypes, Roles, find_model_card, Invokers
+from lllm.core.const import APITypes, Roles, Invokers
 from lllm.llm import Prompts, register_prompt, Orchestrator
 from lllm.proxies import (
     BaseProxy,
@@ -14,7 +14,7 @@ from lllm.proxies import (
     load_builtin_proxies,
 )
 import lllm.invokers as invoker_module
-from lllm.invokers.openai import OpenAIInvoker
+from lllm.invokers.litellm import LiteLLMInvoker
 
 
 @pytest.fixture
@@ -45,19 +45,6 @@ def test_prompts_helper_and_handlers(prompt_registry_cleanup):
     assert resolved.path == path
     assert resolved.interrupt_handler.prompt == prompt.interrupt_prompt
     assert resolved.interrupt_handler_final.prompt == prompt.interrupt_final_prompt
-
-
-def test_message_cost_uses_model_card():
-    usage = {"prompt_tokens": 1000, "completion_tokens": 500, "cached_prompt_tokens": 250}
-    msg = Message(
-        role=Roles.ASSISTANT,
-        content="ok",
-        creator="test",
-        model="gpt-4o-mini",
-        usage=usage,
-        api_type=APITypes.COMPLETION,
-    )
-    assert msg.cost.cost > 0
 
 
 def test_proxy_registration_and_dispatch(proxy_registry_cleanup):
@@ -114,7 +101,7 @@ def test_proxy_api_catalog_and_docs(proxy_registry_cleanup):
 
 def test_mcp_to_tool_and_validation():
     mcp = MCP(server_label="docs", server_url="https://example.com/mcp", require_approval="manual", allowed_tools=["search"])
-    tool = mcp.to_tool(Invokers.OPENAI)
+    tool = mcp.to_tool(Invokers.LITELLM)
     assert tool["type"] == "mcp"
     assert tool["require_approval"] == "manual"
     assert tool["allowed_tools"] == ["search"]
@@ -123,14 +110,14 @@ def test_mcp_to_tool_and_validation():
         MCP(server_label="broken", server_url="https://example.com", require_approval="invalid")
 
 
-def test_openai_invoker_build_tools_includes_mcp():
+def test_litellm_invoker_build_tools_includes_mcp():
     mcp = MCP(server_label="kb", server_url="https://example.com/kb")
     prompt = Prompt(
         path="test/mcp/prompt",
         prompt="Hello",
         mcp_servers_list=[mcp],
     )
-    invoker = OpenAIInvoker.__new__(OpenAIInvoker)
+    invoker = LiteLLMInvoker.__new__(LiteLLMInvoker)
     tools = invoker._build_tools(prompt)
     assert any(tool.get("type") == "mcp" and tool["server_label"] == "kb" for tool in tools)
 
@@ -231,14 +218,14 @@ def test_agent_base_respects_auto_discover_flag(monkeypatch, tmp_path, prompt_re
 
 
 def test_convert_dialog_handles_response_messages(monkeypatch):
-    invoker = OpenAIInvoker.__new__(OpenAIInvoker)
+    invoker = LiteLLMInvoker.__new__(LiteLLMInvoker)
     tool_call = FunctionCall(id="call-1", name="echo", arguments={"value": "test"})
     dialog = types.SimpleNamespace(
         messages=[
             Message(
                 role=Roles.TOOL_CALL,
                 content="Calling echo",
-                creator="assistant",
+                name="assistant",
                 function_calls=[tool_call],
                 model="gpt-4o-mini",
                 api_type=APITypes.RESPONSE,
@@ -246,7 +233,7 @@ def test_convert_dialog_handles_response_messages(monkeypatch):
             Message(
                 role=Roles.TOOL,
                 content="ok",
-                creator="tool",
+                name="tool",
                 extra={"tool_call_id": "call-1"},
                 model="gpt-4o-mini",
             ),

@@ -1,15 +1,15 @@
-# Providers API Reference
+# Invokers API Reference
 
-## BaseProvider
+## BaseInvoker
 
-::: lllm.providers.base.BaseProvider
+::: lllm.invokers.base.BaseInvoker
     options:
       show_root_heading: true
       show_source: true
 
-## OpenAIProvider
+## LiteLLMInvoker
 
-::: lllm.providers.openai.OpenAIProvider
+::: lllm.invokers.litellm.LiteLLMInvoker
     options:
       show_root_heading: true
       show_source: true

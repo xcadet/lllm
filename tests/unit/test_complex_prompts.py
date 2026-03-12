@@ -4,9 +4,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from lllm.core.const import APITypes, Features, ParseError, Roles
+from lllm.core.const import APITypes, ParseError, Roles
 from lllm.core.models import Function, FunctionCall, Message, Prompt
-from lllm.invokers.openai import OpenAIInvoker
+from lllm.invokers.litellm import LiteLLMInvoker
 from tests.helpers.agent_utils import make_agent
 from tests.helpers.scripted_invoker import ScriptedInvoker
 
@@ -219,19 +219,16 @@ def test_response_api_tool_results_emit_user_role(log_config):
     assert interrupts and interrupts[0].name == "lookup_quote"
 
     tool_role_messages = [
-        msg for msg in dialog.messages if msg.role == Roles.USER and msg.creator == "function"
+        msg for msg in dialog.messages if msg.role == Roles.USER and msg.name == "function"
     ]
     assert tool_role_messages, "Response API tool replies should use user-role messages"
 
 
 def test_response_api_includes_search_and_computer_tools(monkeypatch):
-    class StubCard:
+    class StubCard: 
         def __init__(self):
-            self.features = [Features.WEB_SEARCH, Features.COMPUTER_USE]
+            self.features = ["web_search", "computer_use"]
             self.base_url = None
-
-    stub_card = StubCard()
-    monkeypatch.setattr("lllm.invokers.openai.find_model_card", lambda model: stub_card)
 
     class FakeUsage:
         def __init__(self, payload):
@@ -258,7 +255,7 @@ def test_response_api_includes_search_and_computer_tools(monkeypatch):
             self.last_kwargs = kwargs
             return self.response
 
-    invoker = OpenAIInvoker.__new__(OpenAIInvoker)
+    invoker = LiteLLMInvoker.__new__(LiteLLMInvoker)
     fake_response = FakeResponse()
     recorder = RecordingResponses(fake_response)
     invoker.client = SimpleNamespace(responses=recorder)
@@ -274,8 +271,8 @@ def test_response_api_includes_search_and_computer_tools(monkeypatch):
 
     dialog = SimpleNamespace(
         messages=[
-            Message(role=Roles.SYSTEM, content="System", creator="system"),
-            Message(role=Roles.USER, content="Tell me about markets", creator="user"),
+            Message(role=Roles.SYSTEM, content="System", name="system"),
+            Message(role=Roles.USER, content="Tell me about markets", name="user"),
         ]
     )
 

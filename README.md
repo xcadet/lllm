@@ -142,14 +142,16 @@ pytest tests/
 - **Computer Use Agent (CUA)** – `lllm.tools.cua` offers browser automation via Playwright and the OpenAI Computer Use API. It is still evolving and may change without notice.
 - **Responses API Routing** – opt into OpenAI’s Responses API by setting `api_type = "response"` per agent. This enables native web search/computer-use tools but currently targets OpenAI only.
 
-## Work in Progress
 
-- **Additional Providers** – Anthropic, Gemini, and other backends are planned but not yet implemented in `lllm.providers`.
-- **Streaming Hooks** – provider-agnostic streaming and incremental parsing are on the roadmap.
-- **Discovery UX** – improving the auto-discovery loop (reloading prompts/proxies without restarting) is tracked for an upcoming release.
+# Roadmap
 
+## v0.1.0 Refactoring 
+- [ ] -> Refactor providers system: LiteLLM invoker
+- [ ] Configuration system
+- [ ] Proxy-based tool-calling, mini in-dialog interpreter
 
-
+## Future Roadmap
+- [ ] Gradient mode for tuning/training
 
 
 <!-- 

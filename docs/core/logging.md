@@ -10,7 +10,7 @@ Agents are only as good as their observability. LLLM includes a replayable loggi
 - `messages` – the full transcript for each dialog (`session/dialog_id`).
 - `frontend` – arbitrary UI or status events (used by `StreamWrapper`).
 
-A `Dialog` automatically logs every appended `Message` along with metadata (creator, role, cost, parsed payload). Forked dialogs inherit the log base so their lineage is tracked.
+A `Dialog` automatically logs every appended `Message` along with metadata (name, role, cost, parsed payload). Forked dialogs inherit the log base so their lineage is tracked.
 
 ## Log Base Implementations
 
@@ -39,7 +39,7 @@ When building custom UIs, implement the same methods and forward them to your lo
 - Time-based debugging (spot retries, rate-limit pauses, etc.).
 - Lightweight analytics (count function calls per agent, measure exception rates).
 
-Because every `Message` stores `usage` and `CompletionCost`, you can compute spend per run without instrumenting each API call manually.
+Because every `Message` stores `usage` and `InvokeCost`, you can compute spend per run without instrumenting each API call manually.
 
 ## Configuration Tips
 

@@ -10,10 +10,10 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 from lllm.core.models import Message, Prompt, FunctionCall, AgentException, Function
-from lllm.core.const import Roles, APITypes, find_model_card
+from lllm.core.const import Roles, APITypes
 from lllm.core.dialog import Dialog
 from lllm.core.log import ReplayableLogBase, build_log_base
-from lllm.invokers.base import BaseInvoker
+from lllm.invokers.base import BaseInvoker, BaseStreamHandler
 import lllm.utils as U
 from lllm.core.discovery import auto_discover_if_enabled
 from lllm.invokers import build_invoker
@@ -52,9 +52,10 @@ def build_agent(config: Dict[str, Any], ckpt_dir: str, stream, agent_type: str =
 class Agent:
     name: str # the role of the agent, or a name of the agent
     system_prompt: Prompt
-    model: str # the latest snapshot of a model
+    model: str # the model identifier (e.g., 'gpt-4o'), by default, it from litellm model list (https://models.litellm.ai/)
     llm_invoker: BaseInvoker
-    log_base: ReplayableLogBase   
+    stream_handler: Optional[BaseStreamHandler] = None
+    log_base: Optional[ReplayableLogBase] = None
     api_type: APITypes = APITypes.COMPLETION
     model_args: Dict[str, Any] = field(default_factory=dict) # additional args, like temperature, seed, etc.
     max_exception_retry: int = 3
@@ -76,11 +77,6 @@ class Agent:
         max_llm_recall (int): Max retries for LLM API errors.
     """
 
-    def __post_init__(self):
-        self.model_card = find_model_card(self.model)
-        self.model_card.check_args(self.model_args)
-        self.model = self.model_card.latest_snapshot.name
-
     def reload_system(self, system_prompt: Prompt):
         self.system_prompt = system_prompt
         
@@ -92,12 +88,12 @@ class Agent:
         system_message = Message(
             role=Roles.SYSTEM,
             content=self.system_prompt(**prompt_args),
-            creator='system',
+            name='system',
         )
         return Dialog(
-            [system_message],
-            self.log_base,
-            session_name,
+            _messages=[system_message],
+            session_name=session_name,
+            log_base=self.log_base,
             top_prompt=self.system_prompt,
         )
 
@@ -107,13 +103,13 @@ class Agent:
         dialog: Dialog,
         prompt: Prompt,
         prompt_args: Optional[Dict[str, Any]] = None,
-        creator: str = 'internal',
+        sender_name: str = 'internal',
         extra: Optional[Dict[str, Any]] = None,
         role: Roles = Roles.USER,
     ):
         prompt_payload = dict(prompt_args) if prompt_args else None
         extra_payload = dict(extra) if extra else None
-        return dialog.send_message(prompt, prompt_payload, creator=creator, extra=extra_payload, role=role)
+        return dialog.send_message(prompt, prompt_payload, name=sender_name, extra=extra_payload, role=role)
 
     # it performs the "Agent Call"
     def call(
@@ -142,7 +138,8 @@ class Agent:
         args = dict(args) if args else {}
         parser_args = dict(parser_args) if parser_args else {}
         # Prompt: a function maps prompt args and dialog into the expected output 
-        current_prompt = dialog.top_prompt or self.system_prompt
+        if dialog.top_prompt is None:
+            dialog.top_prompt = self.system_prompt
         interrupts = []
         for i in range(10000 if self.max_interrupt_times == 0 else self.max_interrupt_times+1): # +1 for the final response
             llm_recall = self.max_llm_recall 
@@ -156,13 +153,13 @@ class Agent:
                     
                     response = self.llm_invoker.call(
                         working_dialog,
-                        current_prompt,
                         self.model,
                         _model_args,
                         parser_args=parser_args,
                         responder=self.name,
                         extra=extra,
                         api_type=self.api_type,
+                        stream_handler=self.stream_handler,
                     )
                     working_dialog.append(response) 
                     if response.execution_errors != []:
@@ -174,8 +171,7 @@ class Agent:
                     if exception_retry > 0:
                         exception_retry -= 1
                         U.cprint(f'{self.name} is handling an exception {e}, retry times: {self.max_exception_retry-exception_retry}/{self.max_exception_retry}','r')
-                        working_dialog.send_message(current_prompt.exception_handler, {'error_message': str(e)}, creator='exception')
-                        current_prompt = dialog.top_prompt
+                        working_dialog.send_message(dialog.top_prompt.exception_handler, {'error_message': str(e)}, name='exception')
                         continue
                     else:
                         raise e
@@ -204,26 +200,21 @@ class Agent:
                         result_str = f'The function {function_call.name} with identical arguments {function_call.arguments} has been called earlier, please check the previous results and do not call it again. If you do not need to call more functions, just stop calling and provide the final response.'
                     else:
                         print(f'{self.name} is calling function {function_call.name} with arguments {function_call.arguments}')
-                        if function_call.name not in current_prompt.functions:
-                            raise KeyError(f"Function '{function_call.name}' not registered on prompt '{current_prompt.path}'")
-                        function = current_prompt.functions[function_call.name]
+                        if function_call.name not in dialog.top_prompt.functions:
+                            raise KeyError(f"Function '{function_call.name}' not registered on prompt '{dialog.top_prompt.path}'")
+                        function = dialog.top_prompt.functions[function_call.name]
                         function_call = function(function_call)
                         result_str = function_call.result_str
                         interrupts.append(function_call)
-                    if response.api_type == APITypes.RESPONSE:
-                        interrupt_role = Roles.USER
-                    else:
-                        interrupt_role = Roles.TOOL
                     dialog.send_message(
-                        current_prompt.interrupt_handler,
+                        dialog.top_prompt.interrupt_handler,
                         {'call_results': result_str},
-                        role=interrupt_role,
-                        creator='function',
+                        role=Roles.TOOL,
+                        name=function_call.name,
                         extra={'tool_call_id': function_call.id},
                     )
                 if i == self.max_interrupt_times-1:
-                    dialog.send_message(current_prompt.interrupt_handler_final, role=Roles.USER, creator='function')
-                current_prompt = dialog.top_prompt
+                    dialog.send_message(dialog.top_prompt.interrupt_handler_final, role=Roles.USER, name=function_call.name)
             else: # the response is not a function call, it is the final response
                 if i > 0:   
                     U.cprint(f'{self.name} stopped calling functions, total interrupt times: {i}/{self.max_interrupt_times}','y')
@@ -271,8 +262,7 @@ class Orchestrator:
 
         for agent_name, model_config in self.agent_configs.items():
             model_config = model_config.copy()
-            model_name = model_config.pop('model_name')
-            self.model = find_model_card(model_name)
+            self.model = model_config.pop('model_name')
             system_prompt_path = model_config.pop('system_prompt_path')
             api_type_value = model_config.pop('api_type', APITypes.COMPLETION.value)
             if isinstance(api_type_value, APITypes):
@@ -289,7 +279,7 @@ class Orchestrator:
             self.agents[agent_name] = Agent(
                 name=agent_name,
                 system_prompt=PROMPT_REGISTRY[system_prompt_path],
-                model=model_name,
+                model=self.model,
                 llm_invoker=self.llm_invoker,
                 api_type=api_type,
                 model_args=model_config,

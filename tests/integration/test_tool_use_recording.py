@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 
 from lllm.core.models import Function, Prompt
-from lllm.invokers.openai import OpenAIInvoker
+from lllm.invokers.litellm import LiteLLMInvoker
 from tests.helpers.agent_utils import make_agent
 from tests.helpers.mock_openai import MockOpenAIClient, load_recorded_completions
 
@@ -11,7 +11,7 @@ from tests.helpers.mock_openai import MockOpenAIClient, load_recorded_completion
 RECORDING_PATH = Path(__file__).parent / "recordings" / "sample_tool_call.json"
 
 
-def test_tool_use_with_recorded_payload(monkeypatch, log_config):
+def test_tool_use_with_recorded_payload_with_litellm(monkeypatch, log_config):
     calls = []
 
     def get_weather(location: str, unit: str = "celsius"):
@@ -47,7 +47,7 @@ def test_tool_use_with_recorded_payload(monkeypatch, log_config):
 
     monkeypatch.setattr(openai, "OpenAI", fake_client)
 
-    invoker = OpenAIInvoker({})
+    invoker = LiteLLMInvoker({})
     agent = make_agent(system_prompt, invoker, log_config)
 
     dialog = agent.init_dialog()

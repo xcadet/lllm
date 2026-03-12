@@ -5,12 +5,10 @@ from lllm.core.const import (
     Roles,
     Modalities,
     APITypes,
-    CompletionCost,
-    ModelCard,
-    MODEL_CARDS,
+    InvokeCost,
     Invokers,
-    find_model_card,
 )
+import re
 
 class AgentException(Exception):
     def __init__(self, message: str, context: str = ""):
@@ -69,7 +67,7 @@ class Function(BaseModel):
 
     def to_tool(self, invoker: Invokers):
         # This logic might be moved to invoker specific implementations later
-        if invoker == Invokers.OPENAI:
+        if invoker == Invokers.LITELLM:
             return {
                 "type": "function",
                 "function": {
@@ -120,7 +118,7 @@ class MCP(BaseModel):
         return value
 
     def to_tool(self, invoker: Invokers):
-        if invoker == Invokers.OPENAI:
+        if invoker == Invokers.LITELLM:
             tool: Dict[str, Any] = {
                 "type": "mcp",
                 "server_label": self.server_label,
@@ -142,10 +140,13 @@ class TokenLogprob(BaseModel):
 
 TokenLogprob.model_rebuild()
 
+def _sanitize_name(raw_name: str) -> str:
+    return re.sub(r'[^a-zA-Z0-9_-]', '_', raw_name)[:64]
+
 class Message(BaseModel):
     role: Roles
     content: Union[str, List[Dict[str, Any]]] # Content can be string or list of content parts (for images)
-    creator: str
+    name: str # name of the sender
     raw_response: Any = None
     function_calls: List[FunctionCall] = Field(default_factory=list)
     modality: Modalities = Modalities.TEXT
@@ -160,6 +161,10 @@ class Message(BaseModel):
     api_type: APITypes = APITypes.COMPLETION
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    @property
+    def sanitized_name(self):
+        return _sanitize_name(self.name)
 
     @field_validator("logprobs", mode="before")
     @classmethod
@@ -185,14 +190,34 @@ class Message(BaseModel):
         return '\n'.join([str(e) for e in self.execution_errors])
 
     @property
-    def cost(self) -> CompletionCost:
-        if self.model is None or not self.usage:
-            return CompletionCost()
-        try:
-            card = find_model_card(self.model)
-        except Exception:
-            return CompletionCost()
-        return card.cost(self.usage)
+    def cost(self) -> InvokeCost:
+        if not self.usage:
+            return InvokeCost()
+
+        p_tokens = self.usage.get('prompt_tokens', 0)
+        c_tokens = self.usage.get('completion_tokens', 0)
+        t_tokens = self.usage.get('total_tokens', p_tokens + c_tokens)
+        
+        p_details = self.usage.get('prompt_tokens_details', {}) or {}
+        c_details = self.usage.get('completion_tokens_details', {}) or {}
+    
+        return InvokeCost(
+            prompt_tokens=p_tokens,
+            completion_tokens=c_tokens,
+            total_tokens=t_tokens,
+            cached_prompt_tokens=p_details.get('cached_tokens', 0),
+            audio_prompt_tokens=p_details.get('audio_tokens', 0),
+            reasoning_tokens=c_details.get('reasoning_tokens', 0),
+            audio_completion_tokens=c_details.get('audio_tokens', 0),
+            
+            # New Extracted Fields
+            input_cost_per_token=self.usage.get("input_cost_per_token", 0.0),
+            output_cost_per_token=self.usage.get("output_cost_per_token", 0.0),
+            cache_read_input_token_cost=self.usage.get("cache_read_input_token_cost", 0.0),
+            prompt_cost=self.usage.get("prompt_cost", 0.0),
+            completion_cost=self.usage.get("completion_cost", 0.0),
+            cost=self.usage.get("response_cost", 0.0)
+        )
 
     @property
     def is_function_call(self) -> bool:
@@ -206,6 +231,19 @@ class Message(BaseModel):
         return cls(**d)
 
 class Prompt(BaseModel):
+    """
+    The Prompt model.
+
+    Notes:
+        - The __call__ method will always use .format method, so all non argument { and } should be transformed to {{ and }}, this is common in illustrations. Such as:
+            ```python
+            "Output your response like this: {\"key\": \"value\"}"
+            ```
+            should be transformed to:
+            ```python
+            "Output your response like this: {{\"key\": \"value\"}}"
+            ```
+    """
     path: str
     prompt: str
     functions_list: List[Function] = Field(default_factory=list)
@@ -316,3 +354,6 @@ def register_prompt(prompt: Prompt):
         # print(f"Warning: Prompt {prompt.path} already registered. Overwriting.")
         pass
     PROMPT_REGISTRY[prompt.path] = prompt
+
+# to handle the dynamic fields in Message model, e.g., execution_attempts: List['Message']
+Message.model_rebuild()

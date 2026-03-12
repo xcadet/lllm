@@ -2,7 +2,7 @@ import uuid
 import copy
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass, field
-from lllm.core.models import Message, Prompt, CompletionCost
+from lllm.core.models import Message, Prompt, InvokeCost
 from lllm.core.const import Roles, Modalities, RCollections
 from lllm.core.log import ReplayableLogBase
 import lllm.utils as U
@@ -13,8 +13,8 @@ class Dialog:
     Whenever a dialog is created/forked, it should be associated with a session name
     """
     _messages: List[Message]
-    log_base: ReplayableLogBase
     session_name: str
+    log_base: Optional[ReplayableLogBase] = None
     parent_dialog: Optional[str] = None
     top_prompt: Optional[Prompt] = None
 
@@ -69,7 +69,7 @@ class Dialog:
         self,
         image_base64: str,
         caption: str = None,
-        creator: str = 'user',
+        name: str = 'user',
         extra: Optional[Dict[str, Any]] = None,
         role: Roles = Roles.USER,
     ) -> Message:
@@ -79,7 +79,7 @@ class Dialog:
         message = Message(
             role=role,
             content=image_base64,
-            creator=creator,
+            name=name,
             modality=Modalities.IMAGE,
             extra=payload,
         )
@@ -90,7 +90,7 @@ class Dialog:
         self,
         prompt: Prompt | str,
         prompt_args: Optional[Dict[str, Any]] = None,
-        creator: str = 'user',  # or 'user', etc.
+        name: str = 'user',  # or 'user', etc.
         extra: Optional[Dict[str, Any]] = None,
         role: Roles = Roles.USER,
     ) -> Message:
@@ -108,7 +108,7 @@ class Dialog:
         message = Message(
             role=role,
             content=content,
-            creator=creator,
+            name=name,
             modality=Modalities.TEXT,
             extra=metadata
         )
@@ -118,8 +118,13 @@ class Dialog:
     
     def fork(self) -> 'Dialog':
         _messages = [copy.deepcopy(message) for message in self._messages]
-        _dialog = Dialog(_messages, self.log_base, self.session_name, self.dialog_id)
-        _dialog.top_prompt = self.top_prompt
+        _dialog = Dialog(
+            _messages=_messages,
+            session_name=self.session_name,
+            log_base=self.log_base,
+            parent_dialog=self.dialog_id,
+            top_prompt=self.top_prompt,
+        )
         return _dialog
     
     def overview(self, remove_tail: bool = False, max_length: int = 100, 
@@ -134,10 +139,10 @@ class Dialog:
             # Let's assume Message has it or I implement it here.
             # Implementing here for safety if I missed it in Pydantic model.
             content_preview = str(message.content)[:max_length] + '...' if len(str(message.content)) > max_length else str(message.content)
-            _overview += f'[{idx}. {message.creator} ({message.role.value})]: {content_preview}\n\n'
+            _overview += f'[{idx}. {message.name} ({message.role.value})]: {content_preview}\n\n'
         
         _overview = _overview.strip()
-        cost = self.tail.cost if self.messages else CompletionCost()
+        cost = self.tail.cost if self.messages else InvokeCost()
         if stream is not None:
             if divider:
                 stream.divider()
@@ -160,14 +165,24 @@ class Dialog:
         return _dialog
 
     @property
-    def cost(self) -> CompletionCost:
-        return self.get_cost()
-
-    def get_cost(self, model: str = None) -> CompletionCost:
+    def cost(self) -> InvokeCost:
         costs = [message.cost for message in self._messages]
-        return CompletionCost(
-            prompt_tokens=sum([cost.prompt_tokens for cost in costs]),
-            completion_tokens=sum([cost.completion_tokens for cost in costs]),
-            cached_prompt_tokens=sum([cost.cached_prompt_tokens for cost in costs]),
-            cost=sum([cost.cost for cost in costs])
+        return InvokeCost(
+            prompt_tokens=sum(c.prompt_tokens for c in costs),
+            completion_tokens=sum(c.completion_tokens for c in costs),
+            total_tokens=sum(c.total_tokens for c in costs),
+            cached_prompt_tokens=sum(c.cached_prompt_tokens for c in costs),
+            reasoning_tokens=sum(c.reasoning_tokens for c in costs),
+            audio_prompt_tokens=sum(c.audio_prompt_tokens for c in costs),
+            audio_completion_tokens=sum(c.audio_completion_tokens for c in costs),
+            
+            # We don't aggregate token rates for the whole dialog
+            input_cost_per_token=0.0,
+            output_cost_per_token=0.0,
+            cache_read_input_token_cost=0.0,
+            
+            # Aggregate absolute dollar values
+            prompt_cost=sum(c.prompt_cost for c in costs),
+            completion_cost=sum(c.completion_cost for c in costs),
+            cost=sum(c.cost for c in costs)
         )

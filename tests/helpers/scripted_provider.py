@@ -53,7 +53,7 @@ class ScriptedInvoker(BaseInvoker):
         return Message(
             role=message_role,
             content=content,
-            creator=responder,
+            name=responder,
             function_calls=function_calls,
             parsed=parsed,
             execution_errors=errors,

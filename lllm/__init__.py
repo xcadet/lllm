@@ -8,7 +8,7 @@ from lllm.llm import (
     register_prompt,
 )
 from lllm.core.models import Message, Function, FunctionCall, MCP
-from lllm.core.const import Roles, Modalities, Invokers, Features, APITypes
+from lllm.core.const import Roles, Modalities, Invokers, APITypes
 from lllm.proxies import BaseProxy, Proxy, register_proxy, ProxyRegistrator
 from lllm.sandbox.jupyter import JupyterSandbox, JupyterSession
 

@@ -1,34 +1,40 @@
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Generator, Optional
+from typing import Any, Dict, Generator, Optional, Union
 
 from lllm.core.const import APITypes
-from lllm.core.models import Message, Prompt
+from lllm.core.models import Message
+from lllm.core.dialog import Dialog
 
 class BaseInvoker(ABC):
     @abstractmethod
     def call(
         self,
-        dialog: Any,  # Typed as Any to avoid circular import with Dialog, or use 'Dialog' forward ref
-        prompt: Prompt,
+        dialog: Dialog,
         model: str,
         model_args: Optional[Dict[str, Any]] = None,
         parser_args: Optional[Dict[str, Any]] = None,
         responder: str = 'assistant',
-        extra: Optional[Dict[str, Any]] = None,
+        extra: Optional[Dict[str, Any]] = None, # only for tracking additional information, such as frontend replay info
         api_type: APITypes = APITypes.COMPLETION,
-    ) -> Message:
+        stream_handler: BaseStreamHandler = None,
+    ) -> Union[Message, Generator[Any, None, Message]]:
         pass
 
+
+class BaseStreamHandler(ABC):
     @abstractmethod
-    def stream(
-        self,
-        dialog: Any,
-        prompt: Prompt,
-        model: str,
-        model_args: Optional[Dict[str, Any]] = None,
-        parser_args: Optional[Dict[str, Any]] = None,
-        responder: str = 'assistant',
-        extra: Optional[Dict[str, Any]] = None,
-        api_type: APITypes = APITypes.COMPLETION,
-    ) -> Generator[Any, None, Message]:
+    def handle_chunk(self, chunk_content: str, chunk_response: Any):
+        """
+        Handle a chunk of the streaming response.
+        Args:
+            chunk_content, str: The content of the chunk.
+            chunk_response, Any: The raw response object. Please refer to https://docs.litellm.ai/docs/#streaming for more details. 
+             - Note that the object for response API and completion API are different.
+
+        Example usage:
+        ```python
+        print(chunk_content) # or like link to your frontend display
+        ```
+        You can also log other things you are interested in in the object, but you need to handle the state yourself.
+        """
         pass
