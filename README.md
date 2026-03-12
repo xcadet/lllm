@@ -30,9 +30,15 @@ It also tries to make the code plain, compact, easy-to-understand, with less unn
 
 
 
-- Parsing as core, agent as a function
-- Dialog as the only state, top prompt as the parser
-- Declaration first, use a `lllm.toml` declaration to declare the organization of the system and configurations (which are reconfigurable).
+## Design Thoughts
+
+ - **Functional Design**: Parsing as core, agent as a function, agent call makes it as more deterministic and stable as possible
+ - **Dialog Tree as State**: Dialog is the only state, top prompt is always the parser of the next LLM response, i.e. top prompt is the "immediate function caller"
+ - **Declarative Design**: Declaration is in the first place, use a config file declaration to declare the organization of the system and configurations (which are reconfigurable). 
+
+
+
+
 
 
 ## Installation
@@ -155,9 +161,11 @@ pytest tests/
 - [x] Refactor providers system: LiteLLM invoker (invokers/)
 - [ ] -> Refactor registry to context (context.py), and discovery system (discovery.py)
 - [ ] Refactor message and prompt model, prompt management (models.py)
-- [ ] Refactor dialog model/state management (dialog.py)
-- [ ] Refactor agent model, orchestrator, agent call, and config system (agent.py & config.py)
+- [ ] Refactor dialog model/state management, better arg passing (dialog.py)
+- [ ] Refactor agent model, orchestrator, agent call (agent.py)
+- [ ] Refactor config system (config.py, lllm.toml)
 - [ ] Proxy-based tool-calling, mini in-dialog interpreter (proxies/, sandbox/)
+- [ ] Logger (cli logging), replayable logging system (log.py)
 
 ## Future Roadmap
 - [ ] Gradient mode for tuning/training

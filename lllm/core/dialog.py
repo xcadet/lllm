@@ -7,6 +7,8 @@ from lllm.core.const import Roles, Modalities, RCollections
 from lllm.core.log import ReplayableLogBase
 import lllm.utils as U
 from lllm.core.context import Context, get_default_context
+import logging
+logger = logging.getLogger(__name__)
 
 @dataclass
 class Dialog:
@@ -52,9 +54,11 @@ class Dialog:
         top_prompt_path = d['top_prompt_path']
         context = context or get_default_context()
         if top_prompt_path is not None:
-            top_prompt = context.get_prompt(top_prompt_path)
-            if top_prompt is None:
-                 print(f"Warning: Prompt {top_prompt_path} not found in context.")
+            try:
+                top_prompt = context.get_prompt(top_prompt_path)
+            except KeyError:
+                logger.warning("Prompt '%s' not found in context during Dialog.from_dict", top_prompt_path)
+                top_prompt = None
         else:
             top_prompt = None
         return cls(

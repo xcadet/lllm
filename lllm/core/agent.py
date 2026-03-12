@@ -236,10 +236,11 @@ class Orchestrator:
     agent_group: List[str] = None
     is_async: bool = False
 
-    def __init_subclass__(cls, register: bool = True, **kwargs):
+    def __init_subclass__(cls, register: bool = True, context: Optional[Context] = None, **kwargs):
+        ctx = context or get_default_context()
         super().__init_subclass__(**kwargs)
         if register:
-            register_agent_class(cls)
+            register_agent_class(cls, context=ctx)
 
     def __init__(self, config: Dict[str, Any], ckpt_dir: str, stream = None, context: Optional[Context] = None):
         self._context = context or get_default_context()

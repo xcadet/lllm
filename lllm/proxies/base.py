@@ -4,6 +4,7 @@ import datetime as dt
 from typing import Dict, Any, List, Optional, Callable
 import lllm.utils as U
 from lllm.core.context import Context, get_default_context
+from lllm.core.discovery import auto_discover_if_enabled
 
 
 class BaseProxy:
@@ -131,13 +132,13 @@ class Proxy:
         *,
         auto_discover: Optional[bool] = None,
     ):
-        from lllm.core.discovery import auto_discover_if_enabled
-        auto_discover_if_enabled(auto_discover)
         self.activate_proxies = activate_proxies or []
         self.cutoff_date = cutoff_date
         self.deploy_mode = deploy_mode
-        self._context = context or get_default_context()
+        
         self._auto_discover_flag = auto_discover
+        self._context = context or get_default_context()
+        auto_discover_if_enabled(auto_discover, context=self._context)
         self._load_registered_proxies()
 
     def _load_registered_proxies(self):
