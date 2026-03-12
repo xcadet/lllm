@@ -153,10 +153,10 @@ pytest tests/
 
 ## v0.1.0 Refactoring 
 - [x] Refactor providers system: LiteLLM invoker (invokers/)
-- [ ] -> Refactor message and prompt model, prompt management (models.py)
+- [ ] -> Refactor registry to context (context.py), and discovery system (discovery.py)
+- [ ] Refactor message and prompt model, prompt management (models.py)
 - [ ] Refactor dialog model/state management (dialog.py)
 - [ ] Refactor agent model, orchestrator, agent call, and config system (agent.py & config.py)
-- [ ] Refactor initialization and discovery system (discovery.py)
 - [ ] Proxy-based tool-calling, mini in-dialog interpreter (proxies/, sandbox/)
 
 ## Future Roadmap
