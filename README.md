@@ -159,7 +159,7 @@ pytest tests/
 
 ## v0.1.0 Refactoring 
 - [x] Refactor providers system: LiteLLM invoker (invokers/)
-- [x] Refactor registry to context (context.py), and discovery system (discovery.py)
+- [x] Refactor registry to runtime (runtime.py), and discovery system (discovery.py)
 - [x] Refactor prompt model and prompt management (prompt.py)
   - [x] Prompt composition and inheritance (compose templates, config tools, etc.), using jinja or something else like dspy solutions
   - [x] More graceful tool, i.e., now it relies on `link_function`, which separates declaration and definition of a tool, if it is good?

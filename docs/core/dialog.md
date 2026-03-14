@@ -77,7 +77,7 @@ dialog.put_prompt(my_prompt, {'task': task_str}, name='user')
 dialog.put_prompt(task_prompt.on_interrupt(call_state), {'call_results': result}, role=Roles.TOOL, name=fn_name, metadata={'tool_call_id': fn_call.id})
 ```
 
-`prompt` can be a `Prompt` object or a registered path string — the dialog resolves it via context:
+`prompt` can be a `Prompt` object or a registered path string — the dialog resolves it via runtime:
 
 ```python
 dialog.put_prompt('research/agent', {'topic': 'transformers'})
@@ -123,10 +123,10 @@ dialog.overview(max_length=100, stream=st)  # human-readable summary
 
 ```python
 d = dialog.to_dict()
-dialog = Dialog.from_dict(d, log_base=log_base, context=ctx)
+dialog = Dialog.from_dict(d, log_base=log_base, runtime=runtime)
 ```
 
-`to_dict` records `top_prompt_path` (the registered path of the active prompt). `from_dict` resolves it from the context registry. If the path is not found (e.g. a session from an older code version), `top_prompt` is set to `None` with a warning rather than raising.
+`to_dict` records `top_prompt_path` (the registered path of the active prompt). `from_dict` resolves it from the runtime registry. If the path is not found (e.g. a session from an older code version), `top_prompt` is set to `None` with a warning rather than raising.
 
 ---
 

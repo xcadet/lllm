@@ -19,7 +19,7 @@ The `Agent` dataclass in `lllm/llm.py` exposes `call(dialog, extra, args, parser
 
 ## State Machine Lifecycle
 
-1. **Seed dialog** – `Agent.init_dialog` places the system prompt (usually pulled from `context`).
+1. **Seed dialog** – `Agent.init_dialog` places the system prompt (usually pulled from `runtime`).
 2. **Send invocation prompt** – Systems typically `send_message` with a task-specific prompt (e.g., `prompts('task_query')`). The `Dialog.top_prompt` pointer remembers which prompt introduced the latest user turn.
 3. **LLM call** – The provider decides whether to hit `chat.completions` or the Responses API depending on `api_type` (`completion` vs. `response`) and prompt needs, attaches registered functions/MCP servers, and sends the dialog history.
 4. **Response handling** –

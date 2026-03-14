@@ -3,7 +3,7 @@ import functools as ft
 import datetime as dt
 from typing import Dict, Any, List, Optional, Callable
 import lllm.utils as U
-from lllm.core.runtime import Context, get_default_context
+from lllm.core.runtime import Runtime, get_default_runtime
 from lllm.core.discovery import auto_discover_if_enabled
 
 
@@ -128,13 +128,13 @@ class Proxy:
         activate_proxies: Optional[List[str]] = None,
         cutoff_date: dt.datetime = None,
         deploy_mode: bool = False,
-        context: Context = None,
+        runtime: Runtime = None,
         *,
         auto_discover: Optional[bool] = None,
     ):
         self._auto_discover_flag = auto_discover
-        self._context = context or get_default_context()
-        auto_discover_if_enabled(auto_discover, context=self._context)
+        self._runtime = runtime or get_default_runtime()
+        auto_discover_if_enabled(auto_discover, runtime=self._runtime)
 
         self.activate_proxies = activate_proxies or []
         self.cutoff_date = cutoff_date
@@ -142,7 +142,7 @@ class Proxy:
         self._load_registered_proxies()
 
     def _load_registered_proxies(self):
-        for name, proxy_cls in self._context.proxies.items():
+        for name, proxy_cls in self._runtime.proxies.items():
             if self.activate_proxies and name not in self.activate_proxies:
                 continue
             instance = proxy_cls(
@@ -247,15 +247,15 @@ class Proxy:
         handler = getattr(proxy, func_name)
         return handler(*args, **kwargs)
 
-def ProxyRegistrator(path: str, name: str, description: str, context: Context = None):
-    ctx = context or get_default_context()
+def ProxyRegistrator(path: str, name: str, description: str, runtime: Runtime = None):
+    runtime = runtime or get_default_runtime()
     def decorator(cls):
         cls._proxy_path = path
         cls._proxy_name = name
         cls._proxy_description = description
-        ctx.register_proxy(path, cls, overwrite=True)
+        runtime.register_proxy(path, cls, overwrite=True)
         return cls
     return decorator
 
 def register_proxy(name: str, proxy_cls, overwrite: bool = False):
-    get_default_context().register_proxy(name, proxy_cls, overwrite)
+    get_default_runtime().register_proxy(name, proxy_cls, overwrite)

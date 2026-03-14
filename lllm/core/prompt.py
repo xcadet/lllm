@@ -26,7 +26,7 @@ from lllm.core.const import (
     ParseError,
     Roles,
 )
-from lllm.core.runtime import get_default_context
+from lllm.core.runtime import Runtime, get_default_runtime
 from lllm.core.log import LogBase
 import lllm.utils as U
 
@@ -37,9 +37,9 @@ from abc import ABC, abstractmethod
 class AgentException(Exception):
     """Raised inside the agent loop when parsing or validation fails."""
 
-    def __init__(self, message: str, context: str = ""):
+    def __init__(self, message: str, detail: str = ""):
         self.message = message
-        self.context = context
+        self.detail = detail
         super().__init__(self.message)
 
 
@@ -764,5 +764,5 @@ class Prompt(BaseModel):
 # ---------------------------------------------------------------------------
 
 def register_prompt(prompt: Prompt, overwrite: bool = True) -> None:
-    """Register a prompt into the default context."""
-    get_default_context().register_prompt(prompt, overwrite)
+    """Register a prompt into the default runtime."""
+    get_default_runtime().register_prompt(prompt, overwrite)

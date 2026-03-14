@@ -44,7 +44,7 @@ weather_prompt = Prompt(
 
 | Field | Type | Purpose |
 |---|---|---|
-| `path` | `str` | Unique identifier in the registry. Used by `context.get_prompt(path)`. |
+| `path` | `str` | Unique identifier in the registry. Used by `runtime.get_prompt(path)`. |
 | `prompt` | `str` | Template string. Rendered via `renderer` (default: `str.format`). |
 | `parser` | `BaseParser \| None` | Defines valid output shape. `None` = raw passthrough. |
 | `format` | `type \| dict \| None` | Pydantic model or JSON schema for structured output. |
@@ -536,13 +536,13 @@ register_prompt(my_prompt)              # overwrites by default
 register_prompt(my_prompt, overwrite=False)  # raises if path already registered
 ```
 
-Retrieve from the context:
+Retrieve from the runtime:
 
 ```python
-from lllm.core.context import get_default_context
+from lllm.core.runtime import get_default_runtime
 
-ctx = get_default_context()
-prompt = ctx.get_prompt("weather/bot/system")
+runtime = get_default_runtime()
+prompt = runtime.get_prompt("weather/bot/system")
 ```
 
 ---
@@ -705,7 +705,7 @@ And how an `Orchestrator` uses these prompts:
 # agents/researcher.py
 
 from lllm.core.agent import Orchestrator
-from lllm.core.context import get_default_context
+from lllm.core.runtime import get_default_runtime
 import datetime
 
 
@@ -714,7 +714,7 @@ class ResearchAgent(Orchestrator):
     agent_group = ["researcher"]
 
     def call(self, task: str, **kwargs) -> str:
-        ctx = get_default_context()
+        runtime = get_default_runtime()
 
         agent = self.agents["researcher"]
         dialog = agent.init_dialog(
@@ -722,7 +722,7 @@ class ResearchAgent(Orchestrator):
         )
 
         # Link the runtime implementation to the declared schema
-        task_prompt = ctx.get_prompt("research/agent/task")
+        task_prompt = runtime.get_prompt("research/agent/task")
         task_prompt.link_function("save_note", self._save_note)
 
         agent.send_message(dialog, task_prompt, prompt_args={"question": task})
@@ -733,7 +733,7 @@ class ResearchAgent(Orchestrator):
 
         if confidence < 0.5:
             # Low confidence: run a summary turn to consolidate findings
-            summarise_prompt = ctx.get_prompt("research/agent/summarise")
+            summarise_prompt = runtime.get_prompt("research/agent/summarise")
             agent.send_message(
                 dialog, summarise_prompt, prompt_args={"findings": answer}
             )

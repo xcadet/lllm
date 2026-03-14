@@ -17,7 +17,7 @@ from lllm.invokers.base import BaseInvoker, BaseStreamHandler
 import lllm.utils as U
 from lllm.core.discovery import auto_discover_if_enabled
 from lllm.invokers import build_invoker
-from lllm.core.runtime import Context, get_default_context
+from lllm.core.runtime import Runtime, get_default_runtime
 
 
 def _normalize_agent_type(agent_type):
@@ -28,26 +28,26 @@ def _normalize_agent_type(agent_type):
     else:
         raise ValueError(f"Invalid agent type: {agent_type}")
 
-def register_agent_class(agent_cls: Type['Orchestrator'], context: Context = None) -> Type['Orchestrator']:
-    ctx = context or get_default_context()
+def register_agent_class(agent_cls: Type['Orchestrator'], runtime: Runtime = None) -> Type['Orchestrator']:
+    runtime = runtime or get_default_runtime()
     agent_type = _normalize_agent_type(getattr(agent_cls, 'agent_type', None))
     assert agent_type not in (None, ''), f"Agent class {agent_cls.__name__} must define `agent_type`"
-    if agent_type in ctx.agents and ctx.agents[agent_type] is not agent_cls:
-        raise ValueError(f"Agent type '{agent_type}' already registered with {ctx.agents[agent_type].__name__}")
-    ctx.register_agent(agent_type, agent_cls)
+    if agent_type in runtime.agents and runtime.agents[agent_type] is not agent_cls:
+        raise ValueError(f"Agent type '{agent_type}' already registered with {runtime.agents[agent_type].__name__}")
+    runtime.register_agent(agent_type, agent_cls)
     return agent_cls
 
-def get_agent_class(agent_type: str, context: Context = None) -> Type['Orchestrator']:
-    ctx = context or get_default_context()
-    if agent_type not in ctx.agents:
-        raise KeyError(f"Agent type '{agent_type}' not found. Registered: {list(ctx.agents.keys())}")
-    return ctx.agents[agent_type]
+def get_agent_class(agent_type: str, runtime: Runtime = None) -> Type['Orchestrator']:
+    runtime = runtime or get_default_runtime()
+    if agent_type not in runtime.agents:
+        raise KeyError(f"Agent type '{agent_type}' not found. Registered: {list(runtime.agents.keys())}")
+    return runtime.agents[agent_type]
 
-def build_agent(config: Dict[str, Any], ckpt_dir: str, stream, agent_type: str = None, context: Context = None, **kwargs) -> 'Orchestrator':
+def build_agent(config: Dict[str, Any], ckpt_dir: str, stream, agent_type: str = None, runtime: Runtime = None, **kwargs) -> 'Orchestrator':
     if agent_type is None:
         agent_type = config.get('agent_type')
     agent_type = _normalize_agent_type(agent_type)
-    agent_cls = get_agent_class(agent_type, context)
+    agent_cls = get_agent_class(agent_type, runtime)
     return agent_cls(config, ckpt_dir, stream, **kwargs)
 
 
@@ -80,11 +80,18 @@ class Agent:
         max_llm_recall (int): Max retries for LLM API errors.
     """
         
-    # initialize the dialog with a system message
     def start_dialog(self, prompt_args: Optional[Dict[str, Any]] = None, session_name: str = None) -> Dialog:
+        """
+        Initialize the dialog with a system message
+
+        Args:
+            prompt_args (Optional[Dict[str, Any]]): arguments for the system prompt.
+            session_name (str): The name of the session.
+
+        Returns:
+            Dialog: The initialized dialog.
+        """
         prompt_args = dict(prompt_args) if prompt_args else {}
-        if session_name is None:
-            session_name = dt.datetime.now().strftime('%Y%m%d_%H%M%S')+'_'+str(uuid.uuid4())[:6]
         dialog = Dialog(session_name=session_name, log_base=self.log_base)
         dialog.put_prompt(self.system_prompt, prompt_args, name='system', role=Roles.SYSTEM)
         return dialog
@@ -223,15 +230,15 @@ class Orchestrator:
     agent_group: List[str] = None
     is_async: bool = False
 
-    def __init_subclass__(cls, register: bool = True, context: Optional[Context] = None, **kwargs):
-        ctx = context or get_default_context()
+    def __init_subclass__(cls, register: bool = True, runtime: Optional[Runtime] = None, **kwargs):
+        runtime = runtime or get_default_runtime()
         super().__init_subclass__(**kwargs)
         if register:
-            register_agent_class(cls, context=ctx)
+            register_agent_class(cls, runtime=runtime)
 
-    def __init__(self, config: Dict[str, Any], ckpt_dir: str, stream = None, context: Optional[Context] = None):
-        self._context = context or get_default_context()
-        auto_discover_if_enabled(config.get("auto_discover"), context=self._context)
+    def __init__(self, config: Dict[str, Any], ckpt_dir: str, stream = None, runtime: Optional[Runtime] = None):
+        self._runtime = runtime or get_default_runtime()
+        auto_discover_if_enabled(config.get("auto_discover"), runtime=self._runtime)
         if stream is None:
             stream = U.PrintSystem()
         self.config = config
@@ -248,7 +255,7 @@ class Orchestrator:
         self._log_base = build_log_base(config)
         self.agents = {}
 
-        # Initialize Invoker via context
+        # Initialize Invoker via runtime
         self.llm_invoker = build_invoker(config)
 
         for agent_name, model_config in self.agent_configs.items():
@@ -263,7 +270,7 @@ class Orchestrator:
             
             self.agents[agent_name] = Agent(
                 name=agent_name,
-                system_prompt=self._context.get_prompt(system_prompt_path),
+                system_prompt=self._runtime.get_prompt(system_prompt_path),
                 model=self.model,
                 llm_invoker=self.llm_invoker,
                 api_type=api_type,

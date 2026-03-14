@@ -1,4 +1,4 @@
-# lllm/core/context.py
+# lllm/core/runtime.py
 from __future__ import annotations
 from typing import Dict, Any, Type, Optional, TYPE_CHECKING
 
@@ -7,7 +7,7 @@ if TYPE_CHECKING:
     from lllm.proxies.base import BaseProxy
 
 
-class Context:
+class Runtime:
     """
     Holds all registries and shared state for an LLLM runtime.
     
@@ -56,13 +56,13 @@ class Context:
 
 
 # The default instance — created at import time, no side effects
-_default_context = Context()
+_default_runtime = Runtime()
 
 
-def get_default_context() -> Context:
-    return _default_context
+def get_default_runtime() -> Runtime:
+    return _default_runtime
 
 
-def set_default_context(ctx: Context):
-    global _default_context
-    _default_context = ctx
+def set_default_runtime(ctx: Runtime):
+    global _default_runtime
+    _default_runtime = ctx

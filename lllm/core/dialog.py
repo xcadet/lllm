@@ -1,6 +1,7 @@
 import uuid
 import base64
 from PIL import Image
+import datetime as dt
 from pathlib import Path
 import copy
 import re
@@ -13,7 +14,7 @@ from lllm.core.prompt import Prompt, InvokeCost, FunctionCall
 from lllm.core.const import Roles, Modalities, RCollections, APITypes
 from lllm.core.log import ReplayableLogBase
 import lllm.utils as U
-from lllm.core.runtime import Context, get_default_context
+from lllm.core.runtime import Runtime, get_default_runtime
 import logging
 logger = logging.getLogger(__name__)
 
@@ -137,16 +138,18 @@ class Dialog:
 
     It should be a shared state object that gets updated by any participants.
     """
-    session_name: str
+    session_name: str = None
     _messages: List[Message] = Field(default_factory=list)
     log_base: Optional[ReplayableLogBase] = None
     parent_dialog: Optional[str] = None
     top_prompt: Optional[Prompt] = None
-    context: Optional[Context] = None
+    runtime: Optional[Runtime] = None
 
     def __post_init__(self):
         self.dialog_id = uuid.uuid4().hex
-        self.context = self.context or get_default_context()
+        if self.session_name is None:
+            self.session_name = dt.datetime.now().strftime('%Y%m%d_%H%M%S')+'_'+str(uuid.uuid4())[:6]
+        self.runtime = self.runtime or get_default_runtime()
         if self.log_base is not None:
             dialogs_sess = self.log_base.get_collection(RCollections.DIALOGS).create_session(self.session_name) # track the dialogs created in this session
             dialogs_sess.log(self.dialog_id, metadata={'parent_dialog': self.parent_dialog})
@@ -173,14 +176,14 @@ class Dialog:
         }
 
     @classmethod
-    def from_dict(cls, d: dict, log_base: ReplayableLogBase, context: Context = None):
+    def from_dict(cls, d: dict, log_base: ReplayableLogBase, runtime: Runtime = None):
         top_prompt_path = d['top_prompt_path']
-        context = context or get_default_context()
+        runtime = runtime or get_default_runtime()
         if top_prompt_path is not None:
             try:
-                top_prompt = context.get_prompt(top_prompt_path)
+                top_prompt = runtime.get_prompt(top_prompt_path)
             except KeyError:
-                logger.warning("Prompt '%s' not found in context during Dialog.from_dict", top_prompt_path)
+                logger.warning("Prompt '%s' not found in runtime during Dialog.from_dict", top_prompt_path)
                 top_prompt = None
         else:
             top_prompt = None
@@ -190,7 +193,7 @@ class Dialog:
             session_name=d['session_name'],
             parent_dialog=d['parent_dialog'],
             top_prompt=top_prompt,
-            context=context,
+            runtime=runtime,
         )
     
     @property
@@ -276,7 +279,7 @@ class Dialog:
         role: Roles = Roles.USER,
     ) -> Message:
         if isinstance(prompt, str):
-            prompt = self.context.get_prompt(prompt)
+            prompt = self.runtime.get_prompt(prompt)
         prompt_args = dict(prompt_args) if prompt_args else {}
         metadata = dict(metadata) if metadata else {}
         if not prompt_args:
@@ -302,6 +305,7 @@ class Dialog:
             log_base=self.log_base,
             parent_dialog=self.dialog_id,
             top_prompt=self.top_prompt,
+            runtime=self.runtime,
         )
         return _dialog
     

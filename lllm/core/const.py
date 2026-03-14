@@ -9,9 +9,9 @@ class RCollections(str, Enum):
     MESSAGES = 'messages'
 
 class ParseError(Exception):
-    def __init__(self, message: str, context: str = ""):
+    def __init__(self, message: str, detail: str = ""):
         self.message = message
-        self.context = context
+        self.detail = detail
         super().__init__(self.message)
 
 class Roles(str, Enum):
