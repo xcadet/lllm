@@ -32,9 +32,10 @@ It also tries to make the code plain, compact, easy-to-understand, with less unn
 
 ## Design Philosophy
 
-- Functional Design: Agent as a function — parsing defines the return type, the agent call loop enforces it.
-- Dialog Tree as State: Dialog is the shared workspace (blackboard) that agents, tools, and users collectively build. top_prompt is the calling convention for the next turn. Forking creates branches for speculation and recovery.
-- Declarative Design: System shape is declared in config, not hardcoded. What exists (prompts, proxies) and how it's wired (agent configs) are expressed as data.
+- Functional Design: Agent as a function — parsing defines the return type, the agent call loop enforces it. For minimizing side effects, maximizing compositionality, and parallelizability.
+- Dialog as Internal State: Dialog is the "internal mental state" of each agent due to system prompt, different bodies in a talk maintain their own internal dialog, i.e., dialog is what each agent "sees" from the others, its objective, not subjective. Dialog is also a function stack for each agent, where top_prompt is the calling convention for the next turn.
+- Declarative Design: System shape is declared in config, not hardcoded. What exists (prompts, proxies) and how it's wired (agent configs) are expressed as data. 
+
 
 
 
