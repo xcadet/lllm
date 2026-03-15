@@ -30,14 +30,11 @@ It also tries to make the code plain, compact, easy-to-understand, with less unn
 
 
 
-## Design Thoughts
+## Design Philosophy
 
 - Functional Design: Agent as a function — parsing defines the return type, the agent call loop enforces it.
 - Dialog Tree as State: Dialog is the shared workspace (blackboard) that agents, tools, and users collectively build. top_prompt is the calling convention for the next turn. Forking creates branches for speculation and recovery.
 - Declarative Design: System shape is declared in config, not hardcoded. What exists (prompts, proxies) and how it's wired (agent configs) are expressed as data.
-
-
-
 
 
 
@@ -47,69 +44,18 @@ It also tries to make the code plain, compact, easy-to-understand, with less unn
 pip install lllm-core
 ```
 
-## Features
-
-- **Modular Architecture**: Core abstractions, providers, tools, and memory are decoupled.
-- **Type Safety**: Built on Pydantic for robust data validation and strict typing.
-- **Provider Interface**: First-class OpenAI support with an extensible interface for adding more providers as needed.
-- **Neuro-Symbolic Design**: Advanced prompt management with structured output, exception handling, and interrupt logic.
-- **API Proxies**: Secure code execution of external APIs for program synthesis.
-
 
 ## Quick Start
 
 ### Basic Chat
 
-```python
-from lllm import Orchestra, Prompt, register_prompt
-
-# Define a prompt
-simple_prompt = Prompt(
-    path="simple_chat",
-    prompt="You are a helpful assistant. User says: {user_input}"
-)
-register_prompt(simple_prompt)
-
-# Define an Agent
-class SimpleAgent(Orchestra):
-    agent_type = "simple"
-    agent_group = ["assistant"]
-    
-    def call(self, task: str, **kwargs):
-        dialog = self.agents["assistant"].init_dialog({"user_input": task})
-        response, dialog, _ = self.agents["assistant"].call(dialog)
-        return response.content
-
-# Configure and Run
-config = {
-    "name": "simple_chat_agent",
-    "log_dir": "./logs",
-    "log_type": "localfile",
-    "provider": "openai",           # or any provider registered via lllm.providers
-    "auto_discover": True,          # set False to skip automatic prompt/proxy discovery
-    "agent_configs": {
-        "assistant": {
-            "model_name": "gpt-4o-mini",
-            "system_prompt_path": "simple_chat",
-            "temperature": 0.7,
-        }
-    }
-}
-
-agent = SimpleAgent(config, ckpt_dir="./ckpt")
-print(agent("Hello!"))
-```
-
-`provider` selects a registered backend (default `openai`), while `auto_discover` controls whether LLLM scans the paths listed in `lllm.toml` for prompts and proxies each time you spin up an agent or proxy.
-
+TODO
 
 ## Examples
 
 Check `examples/` for more usage scenarios:
-- `examples/basic_chat.py`
-- `examples/tool_use.py`
-- `examples/proxy_catalog.py`
-- `examples/jupyter_sandbox_smoke.py`
+
+TODO
 
 ### Proxies & Tools
 
@@ -134,12 +80,7 @@ The sample configuration points to `examples/autodiscovery/prompts/` and `exampl
 
 ## Testing & Offline Mocks
 
-- Run the full suite (for framework developers): `pytest`.
-- For an end-to-end agent/tool flow without real OpenAI requests, see `tests/integration/test_tool_use_mock_openai.py`. It uses the scripted client defined in `tests/helpers/mock_openai.py`, mirroring what a VCR fixture would capture.
-- Want template smoke tests? `tests/integration/test_cli_template.py` runs `python -m lllm.cli create --name demo --template init_template` inside a temp directory.
-- When you want parity with real OpenAI traffic, capture responses into JSON (see `tests/integration/recordings/sample_tool_call.json`) and point `load_recorded_completions` at your file. `tests/integration/test_tool_use_recording.py` shows how to replay those recordings without network access.
-- Need an opt-in live OpenAI smoke test? Everything under `tests/realapi/` hits the actual APIs whenever `OPENAI_API_KEY` is present (e.g., `pytest tests/realapi/`). If the key is missing, pytest prints a notice and skips those tests, leaving the default mock-based suite as-is.
-- Optional future work: keep capturing real-provider recordings as APIs evolve, and consider running `examples/jupyter_sandbox_smoke.py` in CI to validate notebook tooling automatically.
+TODO 
 
 ## Testing
 
