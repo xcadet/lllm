@@ -27,6 +27,8 @@ LLLM is a lightweight framework for developing **advanced agentic systems**. All
 
 ## Design Philosophy
 
+Its more designed for developers and researchers, and designed to be a tool like PyTorch or Hugging Face, to help them build their own agentic systems easily, and to allow the modules built to be shared and reused by others. 
+
 - **Agentic System as a Program**:  An agentic system = agents (≈ system prompt + base model, the “callers”) + prompts (the "functions" or "calls") + the tactics (the "program" that wires the callers and functions). The agent call makes LLM agents "deterministic" callers, for minimizing side effects, maximizing compositionality, and parallelizability.
 - **Dialog as Internal "Mental" State**: Dialog is the "internal mental state" of each agent due to system prompt, different bodies in a talk maintain their own internal dialog, i.e., dialog is what each agent "sees" from the others, its objective, not subjective. Dialog is also a function stack for each agent, where top_prompt is the calling convention for the next turn.
 - **Configuration as Declaration**: System shape is declared in config, not hardcoded. What exists (prompts, proxies) and how it's wired (agent configs) are expressed as data.
