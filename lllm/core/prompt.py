@@ -5,6 +5,7 @@ import inspect
 import json
 import re
 from functools import cached_property
+import string
 from typing import (
     Any,
     Callable,
@@ -654,9 +655,18 @@ class Prompt(BaseModel):
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
+    _template_vars: set[str] = Field(default_factory=set, init=False)
+
     def model_post_init(self, __context):
         self._functions = {f.name: f for f in self.function_list}
         self._mcp_servers = {m.server_label: m for m in self.mcp_servers_list}
+
+        _parser = string.Formatter()
+        self._template_vars = {
+            field_name.split('.')[0].split('[')[0]
+            for _, field_name, _, _ in _parser.parse(self.prompt)
+            if field_name is not None
+        }
 
     @property
     def functions(self) -> Dict[str, Function]:
@@ -666,10 +676,26 @@ class Prompt(BaseModel):
     def mcp_servers(self) -> Dict[str, MCP]:
         return self._mcp_servers
 
+
+    @property
+    def template_vars(self) -> set[str]:
+        """Variable names required by this template (e.g. {topic} → 'topic')."""
+        return self._template_vars
+
+    def validate_args(self, prompt_args: dict[str, Any]) -> list[str]:
+        """Return list of missing required template variables for the prompt."""
+        return [v for v in self.template_vars if v not in prompt_args]
+
+
     # -- Rendering --------------------------------------------------------
 
     def __call__(self, **kwargs: Any) -> str:
         """Render the template with the given variables."""
+        if not self.template_vars:  # empty set is falsy
+            return self.prompt
+        missing_args = self.validate_args(kwargs)
+        if missing_args:
+            raise ValueError(f"Missing required template variables: {missing_args} for prompt {self.path}, please provide: {self.template_vars}")
         return self.renderer.render(self.prompt, **kwargs)
 
 
@@ -770,7 +796,6 @@ class Prompt(BaseModel):
             "has_parser": self.parser is not None,
             "has_format": self.format is not None,
         }
-
 
 # ---------------------------------------------------------------------------
 # Module-level convenience

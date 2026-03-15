@@ -25,51 +25,56 @@ from lllm.core.log import build_log_base
 
 
 
-def _normalize_agent_type(agent_type):
-    if isinstance(agent_type, Enum) or (isinstance(agent_type, type) and issubclass(agent_type, Enum)):
-        return agent_type.value
-    elif isinstance(agent_type, str):
-        return agent_type
+def _normalize_tactic_type(tactic_type):
+    if isinstance(tactic_type, Enum) or (isinstance(tactic_type, type) and issubclass(tactic_type, Enum)):
+        return tactic_type.value
+    elif isinstance(tactic_type, str):
+        return tactic_type
     else:
-        raise ValueError(f"Invalid agent type: {agent_type}")
+        raise ValueError(f"Invalid tactic type: {tactic_type}")
 
-def register_agent_class(agent_cls: Type['Orchestra'], runtime: Runtime = None) -> Type['Orchestra']:
+def register_tactic_class(tactic_cls: Type['Tactic'], runtime: Runtime = None) -> Type['Tactic']:
     runtime = runtime or get_default_runtime()
-    agent_type = _normalize_agent_type(getattr(agent_cls, 'agent_type', None))
-    assert agent_type not in (None, ''), f"Agent class {agent_cls.__name__} must define `agent_type`"
-    if agent_type in runtime.agents and runtime.agents[agent_type] is not agent_cls:
-        raise ValueError(f"Agent type '{agent_type}' already registered with {runtime.agents[agent_type].__name__}")
-    runtime.register_agent(agent_type, agent_cls)
-    return agent_cls
+    tactic_type = _normalize_tactic_type(getattr(tactic_cls, 'tactic_type', None))
+    assert tactic_type not in (None, ''), f"Tactic class {tactic_cls.__name__} must define `tactic_type`"
+    if tactic_type in runtime.tactics and runtime.tactics[tactic_type] is not tactic_cls:
+        raise ValueError(f"Tactic type '{tactic_type}' already registered with {runtime.tactics[tactic_type].__name__}")
+    runtime.register_tactic(tactic_type, tactic_cls)
+    return tactic_cls
 
-def get_agent_class(agent_type: str, runtime: Runtime = None) -> Type['Orchestra']:
+def get_tactic_class(tactic_type: str, runtime: Runtime = None) -> Type['Tactic']:
     runtime = runtime or get_default_runtime()
-    if agent_type not in runtime.agents:
-        raise KeyError(f"Agent type '{agent_type}' not found. Registered: {list(runtime.agents.keys())}")
-    return runtime.agents[agent_type]
+    if tactic_type not in runtime.tactics:
+        raise KeyError(f"Tactic type '{tactic_type}' not found. Registered: {list(runtime.tactics.keys())}")
+    return runtime.tactics[tactic_type]
 
-def build_agent(config: Dict[str, Any], ckpt_dir: str, stream, agent_type: str = None, runtime: Runtime = None, **kwargs) -> 'Orchestra':
-    if agent_type is None:
-        agent_type = config.get('agent_type')
-    agent_type = _normalize_agent_type(agent_type)
-    agent_cls = get_agent_class(agent_type, runtime)
-    return agent_cls(config, ckpt_dir, stream, **kwargs)
+def build_tactic(config: Dict[str, Any], ckpt_dir: str, stream, tactic_type: str = None, runtime: Runtime = None, **kwargs) -> 'Tactic':
+    if tactic_type is None:
+        tactic_type = config.get('tactic_type')
+    tactic_type = _normalize_tactic_type(tactic_type)
+    tactic_cls = get_tactic_class(tactic_type, runtime)
+    return tactic_cls(config, ckpt_dir, stream, **kwargs)
 
-class Orchestra:
+
+class Tactic:
     """
-    Orchestra is the **Core** base class for LLLM.
-    It is used to create custom agents. It is responsible for:
-    - Initializing the agents by reading the agent configs, you should designate which configs to read by setting the `agent_group` attribute.
+    Tactic is the **top-level** abstraction from LLLM, and the uppermost interface to build an agentic system.
+    An agentic system is defined by a group of agents (≈ system prompt + base model, the “callers”), 
+    a set of prompts (the "functions" or "calls"), and the tactic (the "program" that wire the callers and functions). 
+
+    Tactic defines the "program" that defines how the "agents" handle a task, i.e. how the callers (agents) and functions (prompts) are worked together.
+    Tactic is "local" and "functional" in the sense that it should carry a specific task, and serve as a building block for the agentic system.
+    Given tactics, the upper agentic system is more about a glue code to connect to your own workflow, or like for hosting as a service.
     """
-    agent_type: str | Enum = None
-    agent_group: List[str] = None
+    name: str # a name for this tactic, like "research", "planning", "execution", etc.
+    agent_group: List[str] = None # the keys to find the agent configs from the registry
     is_async: bool = False
 
     def __init_subclass__(cls, register: bool = True, runtime: Optional[Runtime] = None, **kwargs):
         runtime = runtime or get_default_runtime()
         super().__init_subclass__(**kwargs)
         if register:
-            register_agent_class(cls, runtime=runtime)
+            register_tactic_class(cls, runtime=runtime)
 
     def __init__(self, config: Dict[str, Any], ckpt_dir: str, stream = None, runtime: Optional[Runtime] = None):
         self._runtime = runtime or get_default_runtime()
@@ -77,12 +82,12 @@ class Orchestra:
         if stream is None:
             stream = U.PrintSystem()
         self.config = config
-        assert self.agent_group is not None, f"Agent group is not set for {self.agent_type}"
-        _agent_configs = config['agent_configs']
-        self.agent_configs = {}
-        for agent_name in self.agent_group:
-            assert agent_name in _agent_configs, f"Agent {agent_name} not found in agent configs"
-            self.agent_configs[agent_name] = _agent_configs[agent_name]
+        assert self.agent_group is not None, f"Agent group is not set for {self.tactic_type}"
+        _agent_group_configs = config['agent_group_configs']
+        self.agent_group_configs = {}
+        for agent_type in self.agent_group:
+            assert agent_type in _agent_group_configs, f"Agent type {agent_type} not found in agent group configs"
+            self.agent_group_configs[agent_type] = _agent_group_configs[agent_type]
         self._stream = stream
         self._stream_backup = stream
         self.st = None
@@ -93,7 +98,7 @@ class Orchestra:
         # Initialize Invoker via runtime
         self.llm_invoker = build_invoker(config)
 
-        for agent_name, model_config in self.agent_configs.items():
+        for agent_name, model_config in self.agent_group_configs.items():
             model_config = model_config.copy()
             self.model = model_config.pop('model_name')
             system_prompt_path = model_config.pop('system_prompt_path')

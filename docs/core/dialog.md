@@ -202,8 +202,8 @@ See [Agent Call](./agent_call.md) for the full agent API.
 ## Example: Complete Single-Agent Turn
 
 ```python
-class SummarizeAgent(Orchestra):
-    agent_type = "summarizer"
+class SummarizeAgent(Tactic):
+    tactic_type = "summarizer"
     agent_group = ["assistant"]
     
     def call(self, task: str, **kwargs):

@@ -7,9 +7,9 @@
       show_root_heading: true
       show_source: true
 
-## Orchestra
+## Tactic
 
-::: lllm.core.agent.Orchestra
+::: lllm.core.tactic.Tactic
     options:
       show_root_heading: true
       show_source: true

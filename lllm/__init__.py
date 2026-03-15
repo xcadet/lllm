@@ -1,8 +1,8 @@
 from lllm.core.agent import (
     Agent,
-    Orchestra,
-    build_agent,
-    register_agent_class,
+    Tactic,
+    build_tactic,
+    register_tactic_class,
 )
 from lllm.core.prompt import Function, FunctionCall, MCP, Prompt 
 from lllm.core.dialog import Message, Dialog

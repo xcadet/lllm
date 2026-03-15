@@ -699,18 +699,18 @@ summarise = task.extend(
 )
 ```
 
-And how an `Orchestra` uses these prompts:
+And how an `Tactic` uses these prompts:
 
 ```python
 # agents/researcher.py
 
-from lllm.core.agent import Orchestra
+from lllm.core.tactic import Tactic
 from lllm.core.runtime import get_default_runtime
 import datetime
 
 
-class ResearchAgent(Orchestra):
-    agent_type = "researcher"
+class ResearchAgent(Tactic):
+    tactic_type = "researcher"
     agent_group = ["researcher"]
 
     def call(self, task: str, **kwargs) -> str:

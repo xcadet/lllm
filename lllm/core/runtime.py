@@ -20,7 +20,7 @@ class Runtime:
     def __init__(self):
         self.prompts: Dict[str, Prompt] = {}
         self.proxies: Dict[str, Type[BaseProxy]] = {}
-        self.agents: Dict[str, Type] = {}  # Orchestra subclasses
+        self.tactics: Dict[str, Type] = {}  # Tactic subclasses
         self._discovery_done: bool = False
 
     # -- Prompts --
@@ -40,18 +40,18 @@ class Runtime:
             raise ValueError(f"Proxy '{name}' already registered")
         self.proxies[name] = proxy_cls
 
-    # -- Agents --
-    def register_agent(self, agent_type: str, agent_cls: Type, overwrite: bool = False):
-        if agent_type in self.agents and not overwrite:
-            raise ValueError(f"Agent type '{agent_type}' already registered")
-        self.agents[agent_type] = agent_cls
+    # -- Tactics --
+    def register_tactic(self, tactic_type: str, tactic_cls: Type, overwrite: bool = False):
+        if tactic_type in self.tactics and not overwrite:
+            raise ValueError(f"Tactic type '{tactic_type}' already registered")
+        self.tactics[tactic_type] = tactic_cls
 
     # -- Lifecycle --
     def reset(self):
         """Clear all registries. Primarily for testing."""
         self.prompts.clear()
         self.proxies.clear()
-        self.agents.clear()
+        self.tactics.clear()
         self._discovery_done = False
 
 

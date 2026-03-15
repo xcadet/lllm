@@ -418,10 +418,8 @@ class Dialog:
             prompt = self.runtime.get_prompt(prompt)
         prompt_args = dict(prompt_args) if prompt_args else {}
         metadata = dict(metadata) if metadata else {}
-        if not prompt_args:
-            content = prompt.prompt
-        else:
-            content = prompt(**prompt_args)
+
+        content = prompt(**prompt_args)
         message = Message(
             role=role,
             content=content,

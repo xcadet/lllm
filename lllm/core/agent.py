@@ -58,8 +58,16 @@ class Agent:
     _dialogs: Dict[str, Dialog] = field(default_factory=dict, repr=False)
     _active_alias: Optional[str] = field(default=None, repr=False)
 
-    def open(self, alias: str, prompt_args=None, session_name=None):
-        """Create a new dialog owned by this agent, keyed by alias."""
+    def open(self, alias: str, prompt_args=None, session_name=None, switch: bool = True):
+        """
+        Create a new dialog owned by this agent, keyed by alias.
+
+        Args:
+            alias: the alias for the new dialog.
+            prompt_args: the arguments for the system prompt.
+            session_name: the name of the session for logging and checkpointing.
+            switch: if True, switch to the new dialog after opening. Default is True.
+        """
         if alias in self._dialogs:
             raise ValueError(
                 f"Dialog '{alias}' already exists on agent '{self.name}'. "
@@ -76,10 +84,11 @@ class Agent:
             name='system', role=Roles.SYSTEM,
         )
         self._dialogs[alias] = dialog
-        self._active_alias = alias
+        if switch:
+            self._active_alias = alias
         return self # for chaining
         
-    def fork(self, alias: str, child_alias: str, last_n: int = 0, first_k: int = 1, switch: bool = False) -> 'Agent':
+    def fork(self, alias: str, child_alias: str, last_n: int = 0, first_k: int = 1, switch: bool = True) -> 'Agent':
         """
         Branch an existing dialog into a new child dialog.
 
