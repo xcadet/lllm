@@ -112,7 +112,7 @@ class BaseProxy:
             results[entry["callable"]] = {"status": status, "issues": issues}
         return results
 
-class Proxy:
+class ProxyManager:
     """
     Runtime registry that instantiates every discovered proxy and forwards calls.
 

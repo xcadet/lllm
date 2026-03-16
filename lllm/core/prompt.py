@@ -30,7 +30,7 @@ from lllm.core.const import (
 from lllm.invokers.base import InvokeResult
 from lllm.core.dialog import Message
 from lllm.core.runtime import Runtime, get_default_runtime
-from lllm.core.log import LogBase
+from lllm.logging import LogBase
 import lllm.utils as U
 
 from abc import ABC, abstractmethod

@@ -374,3 +374,225 @@ node = get_default_runtime().get_node("sentiment_analyzer.models:weights.bin")
 weights_path = node.metadata["file_path"]
 # model = my_framework.load(weights_path)
 ```
+
+
+## Resource Access Reference
+
+This section covers how each resource type is registered, discovered, and accessed. All resource types share the same URL scheme (`pkg.section:key`) and the same `ResourceNode` infrastructure, but they differ in how they enter the registry and how you typically use them.
+
+
+### Prompts
+
+Prompts are Python `Prompt` objects defined at module scope in `.py` files.
+
+**Registration paths:**
+
+1. **Discovery** (recommended) — list folders in `[prompts]` section of `lllm.toml`. Every `Prompt` instance found at module scope is registered automatically.
+2. **Manual** — `runtime.register_prompt(prompt, namespace="pkg.prompts")` or the module-level `register_prompt(prompt)`.
+
+**Defining a prompt:**
+
+```python
+# prompts/research.py
+from lllm import Prompt
+
+system = Prompt(
+    path="system",
+    prompt="You are a research analyst. Analyze {topic}.",
+)
+
+followup = Prompt(
+    path="followup",
+    prompt="Based on the analysis, suggest next steps for {topic}.",
+)
+```
+
+With `[prompts] paths = ["prompts"]` under package `my_pkg`, these register as:
+- `my_pkg.prompts:research/system`
+- `my_pkg.prompts:research/followup`
+
+**Accessing:**
+
+```python
+from lllm import load_prompt
+
+# Bare key (default package)
+prompt = load_prompt("research/system")
+
+# Package-qualified
+prompt = load_prompt("my_pkg:research/system")
+
+# Full URL
+prompt = load_prompt("my_pkg.prompts:research/system")
+
+# From runtime directly
+from lllm import get_default_runtime
+prompt = get_default_runtime().get_prompt("research/system")
+```
+
+**In agent configs** — reference by path:
+
+```yaml
+agent_configs:
+  - name: analyst
+    system_prompt_path: research/system      # bare key
+    # or: system_prompt_path: my_pkg:research/system
+```
+
+
+### Proxies
+
+Proxies are `BaseProxy` subclasses decorated with `@ProxyRegistrator`. They have their own dispatch system (`Proxy` runtime) on top of the resource registry.
+
+**Registration paths:**
+
+1. **`@ProxyRegistrator` decorator** (primary) — registers the class into the default runtime at import time. This is how all existing proxies (including builtins) work. The decorator sets `_proxy_path` on the class, which becomes the resource key.
+
+2. **Discovery** — list folders in `[proxies]` section of `lllm.toml`. Discovery imports the `.py` files, which triggers `@ProxyRegistrator` decorators. Discovery also scans for `BaseProxy` subclasses directly, using `_proxy_path` as the key if present.
+
+3. **`load_builtin_proxies()`** — manually imports LLLM's bundled proxy modules (Wolfram Alpha, financial data, search, etc.) to trigger their `@ProxyRegistrator` decorators. Use this in notebooks or scripts where you don't have an `lllm.toml`.
+
+**Defining a proxy:**
+
+```python
+# proxies/weather.py
+from lllm.proxies import BaseProxy, ProxyRegistrator
+
+@ProxyRegistrator(
+    path="weather/openweather",
+    name="OpenWeather API",
+    description="Current weather and forecasts",
+)
+class OpenWeatherProxy(BaseProxy):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.api_key = os.getenv("OPENWEATHER_API_KEY")
+        self.base_url = "https://api.openweathermap.org/data/2.5"
+
+    @BaseProxy.endpoint(
+        category="current",
+        endpoint="weather",
+        description="Get current weather for a city",
+        params={"q*": (str, "London"), "units": (str, "metric")},
+        response={"temp": 15.2, "description": "cloudy"},
+    )
+    def current_weather(self, params):
+        return params
+```
+
+The `@ProxyRegistrator(path="weather/openweather")` registers this class under the key `"weather/openweather"`. If this file is also discovered via `[proxies]` section under package `my_pkg`, it's additionally available as `"my_pkg.proxies:weather/openweather"`.
+
+**Loading and using proxies:**
+
+```python
+# Option 1: Via the Proxy runtime dispatcher (recommended for agent use)
+from lllm.proxies import Proxy
+
+proxy = Proxy(activate_proxies=["weather/openweather"])
+result = proxy("weather/openweather/current/weather", {"q": "London"})
+
+# Option 2: Via the resource registry (get the class, not an instance)
+from lllm import load_proxy
+cls = load_proxy("weather/openweather")
+instance = cls(cutoff_date="2024-01-01")
+
+# Option 3: Load builtins for notebook use
+from lllm.proxies import load_builtin_proxies, Proxy
+load_builtin_proxies()
+proxy = Proxy(activate_proxies=["wa", "finance/fmp"])
+result = proxy("wa/Query/llm-api", {"input": "population of France"})
+```
+
+**Proxy activation matching** — `Proxy(activate_proxies=[...])` matches against any of:
+- The qualified key (`"my_pkg.proxies:weather/openweather"`)
+- The bare key (`"weather/openweather"`)
+- The `_proxy_path` attribute (`"weather/openweather"`)
+
+So you can always use the short path from `@ProxyRegistrator`.
+
+**Inspecting available proxies:**
+
+```python
+proxy = Proxy()                    # loads all registered proxies
+print(proxy.available())           # sorted list of proxy keys
+print(proxy.api_catalog())         # full endpoint directory
+print(proxy.retrieve_api_docs())   # human-readable docs for prompts
+```
+
+
+### Tactics
+
+Tactics are `Tactic` subclasses that register automatically when defined (via `__init_subclass__`).
+
+**Registration paths:**
+
+1. **Auto-registration** (primary) — defining a `Tactic` subclass with a `name` attribute triggers `__init_subclass__`, which calls `register_tactic_class`. This happens at class definition time (import time).
+
+2. **Discovery** — list folders in `[tactics]` section of `lllm.toml`. Discovery imports `.py` files, triggering the auto-registration above.
+
+3. **Manual** — `register_tactic_class(MyTactic, runtime=my_runtime)`.
+
+**Defining a tactic:**
+
+```python
+# tactics/research.py
+from lllm import Tactic
+
+class ResearchTactic(Tactic):
+    name = "researcher"
+    agent_group = ["analyst", "searcher"]
+
+    def call(self, task: str, **kwargs) -> str:
+        analyst = self.agents["analyst"]
+        analyst.open("work", prompt_args={"topic": task})
+        analysis = analyst.respond()
+        return analysis.content
+```
+
+**Loading and using:**
+
+```python
+from lllm import load_tactic, build_tactic, resolve_config
+
+# Get the class
+tactic_cls = load_tactic("researcher")
+tactic_cls = load_tactic("my_pkg:researcher")
+
+# Build from config (the typical way)
+config = resolve_config("default")
+tactic = build_tactic(config, ckpt_dir="./runs", name="researcher")
+result = tactic("Analyze transformer architectures")
+```
+
+
+### Configs
+
+Configs are YAML files discovered from `[configs]` folders. They are loaded **lazily** — the file is only read on first access.
+
+**Registration paths:**
+
+1. **Discovery** (primary) — YAML files in `[configs]` paths are registered as lazy `ResourceNode`s. The key is the relative path without extension (e.g., `configs/experiments/fast.yaml` → `"experiments/fast"`).
+
+2. **Manual** — `runtime.register_config("name", data_dict, namespace="pkg.configs")` or with a lazy loader: `runtime.register_config("name", loader=lambda: yaml.safe_load(open("f.yaml")), namespace="pkg.configs")`.
+
+**Accessing:**
+
+```python
+from lllm import load_config, resolve_config
+
+# Direct load (no inheritance resolution)
+cfg = load_config("default")
+cfg = load_config("my_pkg:experiments/fast")
+
+# With base inheritance resolution (recommended)
+cfg = resolve_config("experiments/fast")
+```
+
+See the [Configuration doc](config.md) for details on `global` merge, `base` inheritance, and `vendor_config`.
+
+
+### Custom Sections
+
+Any TOML section besides the six official ones is treated as a custom resource section. All non-Python files are registered lazily; Python files are also scanned for typed resources.
+
+See the [Custom Sections](#custom-sections) section above for full details on file loading behavior, access patterns, and examples.

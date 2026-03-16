@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from lllm.core.prompt import Prompt, AgentException, AgentCallSession
 from lllm.core.const import Roles, APITypes
 from lllm.core.dialog import Dialog, Message
-from lllm.core.log import ReplayableLogBase
+from lllm.logging import ReplayableLogBase
 from lllm.invokers.base import BaseInvoker, BaseStreamHandler
 import lllm.utils as U
 

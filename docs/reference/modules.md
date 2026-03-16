@@ -16,7 +16,7 @@ This section lists the primary modules in the repository.
 | `lllm/core/tactic.py` | `Tactic` — top-level abstraction wiring agents to prompts. `TacticCallSession`, `_TrackedAgent`, `build_tactic`, `register_tactic_class`. |
 | `lllm/core/const.py` | Enumerations (`Roles`, `Modalities`, `APITypes`), model cards, pricing utilities. |
 | `lllm/core/log.py` | Replayable logging base classes (`ReplayableLogBase`, `LocalFileLog`, `NoLog`). |
-| `lllm/proxies/base.py` | `BaseProxy`, `Proxy` runtime, `ProxyRegistrator` decorator, endpoint metadata. Namespace-aware proxy activation. |
+| `lllm/proxies/base.py` | `BaseProxy`, `ProxyManager` runtime, `ProxyRegistrator` decorator, endpoint metadata. Namespace-aware proxy activation. |
 | `lllm/proxies/builtin/` | Built-in proxy implementations (financial data, search, etc.). |
 | `lllm/invokers/` | Provider registry and concrete backends implementing `BaseInvoker`. |
 | `lllm/sandbox/` | `JupyterSession`, kernel management for code execution. |

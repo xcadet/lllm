@@ -15,8 +15,7 @@ from lllm.core.prompt import Function, FunctionCall, MCP, Prompt
 from lllm.core.dialog import Message, Dialog
 from lllm.core.agent import Agent
 from lllm.core.tactic import Tactic, build_tactic, register_tactic_class
-from lllm.core.const import Roles, Modalities, Invokers, APITypes
-from lllm.proxies import BaseProxy, Proxy, register_proxy, ProxyRegistrator
+from lllm.proxies import BaseProxy, ProxyManager, register_proxy, ProxyRegistrator
 
 __version__ = "0.0.2"
 

@@ -1,6 +1,5 @@
 # Financial Modeling Prep Proxy
 # https://site.financialmodelingprep.com/developer/docs/stable 
-# MSD API https://mainstreetdata.com/home 
 
 import os
 import datetime as dt

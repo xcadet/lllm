@@ -157,3 +157,134 @@ def build_log_base(config: Dict[str, Any], base_name: str = None):
         return NoLog(base_name, config)
     else:
         raise ValueError(f"Log type {config['log_type']} not supported")
+
+
+
+#########################
+# Frontend
+#########################
+
+class NaiveWith: 
+    def __init__(self,message,*args,**kwargs):
+        self.message = message
+
+    def __enter__(self):
+        print(f'\n[START: {self.message}]\n')
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        print(f'\n[FINISH: {self.message}]\n')
+
+class SilentWith(NaiveWith):
+    def __enter__(self):
+        pass
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        pass
+
+class WithWrapper:
+    def __init__(self, with_class, log_function, tag):
+        self.with_class = with_class
+        self.log_function = log_function
+        self.tag = tag
+
+    def __call__(self, message, *args, **kwargs):
+        class WrappedWith:
+            def __init__(cls, message, log_function, *args, **kwargs):
+                cls.message = message
+                cls.log_function = log_function
+                cls.original_with = self.with_class(message, *args, **kwargs)
+
+            def __enter__(cls):
+                cls.log_function(cls.message, f'enter{self.tag}')
+                return cls.original_with.__enter__()
+
+            def __exit__(cls, exc_type, exc_val, exc_tb):
+                cls.log_function(cls.message, f'exit{self.tag}')
+                return cls.original_with.__exit__(exc_type, exc_val, exc_tb)
+
+        return WrappedWith(message, self.log_function, *args, **kwargs)
+    
+
+class PrintSystem:
+    def __init__(self,silent=False):
+        self._isprintsystem = True
+        self.silent=silent
+        self.status = NaiveWith if not silent else SilentWith
+        self.spinner = NaiveWith if not silent else SilentWith
+        self.expander = NaiveWith if not silent else SilentWith
+    
+    def write(self,msg,**kwargs):
+        if not self.silent:
+            print(msg)
+
+    def markdown(self,msg,**kwargs):
+        if not self.silent:
+            print(msg)
+    
+    def spinner(self,msg,**kwargs):
+        if not self.silent:
+            print(msg)
+
+    def code(self,code,**kwargs):
+        if not self.silent:
+            print(code)
+
+    def balloons(self,**kwargs):
+        if not self.silent:
+            print('🎈🎈🎈🎈🎈')
+
+    def snow(self,**kwargs):
+        if not self.silent:
+            print('❄️❄️❄️❄️❄️')
+    
+    def divider(self,**kwargs):
+        if not self.silent:
+            print('--------------------------------')
+
+    def progress(self,initial_progress,**kwargs): # 0 to 1
+        bar = tqdm(total=1,initial=initial_progress,**kwargs)
+        def progress(progress,text=None):
+            if text is not None:
+                bar.set_description(text)
+            bar.n = round(float(progress),2)
+            bar.refresh()
+        bar.progress = progress
+        return bar
+
+    def error(self,msg,**kwargs):
+        cprint(f'Error: {msg}','r')
+
+
+class StreamWrapper: # adding logging to a stream, either printsystem or streamlit
+    def __init__(self, stream, log_base, session_name: str):
+        self.stream=stream
+        self.sess = log_base.get_collection(RCollections.FRONTEND).create_session(session_name)
+        self.status = WithWrapper(stream.status, self.log, 'status')
+        self.spinner = WithWrapper(stream.spinner, self.log, 'spinner')
+        self.expander = WithWrapper(stream.expander, self.log, 'expander')
+
+    def log(self,msg,type):
+        self.sess.log(msg,metadata={'type':type})
+    
+    def write(self,msg,**kwargs):
+        self.stream.write(msg,**kwargs)
+        self.log(msg,'write')
+
+    def markdown(self,msg,**kwargs):
+        self.stream.markdown(msg,**kwargs)
+        self.log(msg,'markdown')
+
+    def balloons(self,**kwargs):
+        self.stream.balloons(**kwargs)
+        self.log('balloons','balloons')
+
+    def snow(self,**kwargs):
+        self.stream.snow(**kwargs)
+        self.log('snow','snow')
+
+    def divider(self,**kwargs):
+        self.stream.divider(**kwargs)
+        self.log('divider','divider')
+
+    def code(self,code,**kwargs):
+        self.stream.code(code,**kwargs)
+        self.log(code,'code')

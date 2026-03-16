@@ -44,9 +44,8 @@ from lllm.core.dialog import Message
 from lllm.core.runtime import Runtime, get_default_runtime
 from lllm.core.const import APITypes
 from lllm.core.config import AgentSpec, parse_agent_configs
-from lllm.core.log import build_log_base
+from lllm.logging import PrintSystem, StreamWrapper, build_log_base
 from lllm.invokers import build_invoker
-import lllm.utils as U
 
 logger = logging.getLogger(__name__)
 
@@ -290,7 +289,7 @@ class Tactic(ABC):
 
         self.config = config
         self.ckpt_dir = ckpt_dir
-        self._stream = stream or U.PrintSystem()
+        self._stream = stream or PrintSystem()
         self._stream_backup = self._stream
         self.st = None
         self._log_base = build_log_base(config)
@@ -407,13 +406,13 @@ class Tactic(ABC):
     # -- Session helpers --------------------------------------------------
 
     def set_st(self, session_name: str) -> None:
-        self.st = U.StreamWrapper(self._stream, self._log_base, session_name)
+        self.st = StreamWrapper(self._stream, self._log_base, session_name)
 
     def restore_st(self) -> None:
         self.st = None
 
     def silent(self) -> None:
-        self._stream = U.PrintSystem(silent=True)
+        self._stream = PrintSystem(silent=True)
 
     def restore(self) -> None:
         self._stream = self._stream_backup

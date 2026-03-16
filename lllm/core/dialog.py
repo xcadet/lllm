@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field, ConfigDict, field_validator
 
 from lllm.core.prompt import Prompt, InvokeCost, FunctionCall
 from lllm.core.const import Roles, Modalities, RCollections, APITypes
-from lllm.core.log import ReplayableLogBase
+from lllm.logging import ReplayableLogBase
 import lllm.utils as U
 from lllm.core.runtime import Runtime, get_default_runtime
 import logging

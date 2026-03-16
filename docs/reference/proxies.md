@@ -7,9 +7,9 @@
       show_root_heading: true
       show_source: true
 
-## Proxy
+## ProxyManager
 
-::: lllm.proxies.base.Proxy
+::: lllm.proxies.base.ProxyManager
     options:
       show_root_heading: true
       show_source: true

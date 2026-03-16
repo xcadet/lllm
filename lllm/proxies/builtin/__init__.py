@@ -18,11 +18,8 @@ BUILTIN_PROXY_MODULES: List[str] = [
     "lllm.proxies.builtin.exa_proxy",
     "lllm.proxies.builtin.fmp_proxy",
     "lllm.proxies.builtin.fred_proxy",
-    "lllm.proxies.builtin.gkg_proxy",
     "lllm.proxies.builtin.gt_proxy",
-    "lllm.proxies.builtin.kb_proxy",
     "lllm.proxies.builtin.msd_proxy",
-    "lllm.proxies.builtin.pm_proxy",
     "lllm.proxies.builtin.wa_proxy",
 ]
 
