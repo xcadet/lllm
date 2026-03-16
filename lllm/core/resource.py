@@ -4,21 +4,17 @@ Resource registry primitives.
 
 ``ResourceNode`` wraps anything stored in a Runtime registry.
 ``PackageInfo`` captures the identity of a loaded LLLM package.
-
-And also some public convenience functions for loading resources from the runtime.
-
-    from lllm import load_prompt, load_tactic, load_config, load_resource
 """
 from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Optional, TYPE_CHECKING
 import logging
 
-logger = logging.getLogger(__name__)
-
 if TYPE_CHECKING:
     from lllm.core.prompt import Prompt
     from lllm.core.runtime import Runtime
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -97,6 +93,10 @@ class ResourceNode:
         return f"ResourceNode({self.qualified_key!r}, type={self.resource_type!r}, {tag})"
 
 
+
+# ---------------------------------------------------------------------------
+# Public convenience loaders
+# ---------------------------------------------------------------------------
 
 def load_prompt(path: str, runtime: "Optional[Runtime]" = None) -> "Prompt":
     """Load a prompt.  Accepts ``"resource"``, ``"pkg:resource"``,

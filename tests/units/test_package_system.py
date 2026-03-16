@@ -351,6 +351,150 @@ class TestLoadPackage(unittest.TestCase):
 
             self.assertTrue(self.rt.has("tp.prompts:vf/q/p"))
 
+    def test_custom_section_files(self):
+        """Custom section discovers non-Python files lazily."""
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            _write(tmp / "lllm.toml", textwrap.dedent("""\
+                [package]
+                name = "tp"
+
+                [assets]
+                paths = ["assets"]
+            """))
+            # Create various file types
+            (tmp / "assets").mkdir()
+            (tmp / "assets" / "logo.png").write_bytes(b"\x89PNG_fake_image_data")
+            (tmp / "assets" / "config.json").write_text('{"key": "value"}')
+            # Nested subdirectory
+            (tmp / "assets" / "models").mkdir()
+            (tmp / "assets" / "models" / "weights.bin").write_bytes(b"\x00\x01\x02\x03")
+
+            from lllm.core.config import load_package
+            load_package(str(tmp / "lllm.toml"), runtime=self.rt)
+
+            # PNG registered with extension in key
+            self.assertTrue(self.rt.has("tp.assets:logo.png"))
+            # Lazily loaded — not read yet
+            node = self.rt.get_node("tp.assets:logo.png")
+            self.assertFalse(node.is_loaded)
+            # Access triggers load — returns bytes
+            data = self.rt.get("tp.assets:logo.png")
+            self.assertEqual(data, b"\x89PNG_fake_image_data")
+            self.assertTrue(node.is_loaded)
+            # file_path metadata available
+            self.assertIn("file_path", node.metadata)
+
+            # JSON parsed automatically
+            json_data = self.rt.get("tp.assets:config.json")
+            self.assertEqual(json_data, {"key": "value"})
+
+            # Nested binary file
+            self.assertTrue(self.rt.has("tp.assets:models/weights.bin"))
+            self.assertEqual(self.rt.get("tp.assets:models/weights.bin"), b"\x00\x01\x02\x03")
+
+    def test_custom_section_default_subfolder(self):
+        """Custom section falls back to subfolder matching the section name."""
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            _write(tmp / "lllm.toml", textwrap.dedent("""\
+                [package]
+                name = "tp"
+
+                [assets]
+            """))
+            (tmp / "assets").mkdir()
+            (tmp / "assets" / "icon.svg").write_text("<svg>circle</svg>")
+
+            from lllm.core.config import load_package
+            load_package(str(tmp / "lllm.toml"), runtime=self.rt)
+
+            self.assertTrue(self.rt.has("tp.assets:icon.svg"))
+            self.assertEqual(self.rt.get("tp.assets:icon.svg"), b"<svg>circle</svg>")
+
+    def test_custom_section_with_under_prefix(self):
+        """Custom section respects 'under' prefix."""
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            assets_dir = tmp / "my_assets"
+            assets_dir.mkdir()
+            (assets_dir / "photo.jpg").write_bytes(b"jpeg_data")
+
+            _write(tmp / "lllm.toml", textwrap.dedent(f"""\
+                [package]
+                name = "tp"
+
+                [assets]
+                paths = ["{assets_dir.resolve()} under images"]
+            """))
+
+            from lllm.core.config import load_package
+            load_package(str(tmp / "lllm.toml"), runtime=self.rt)
+
+            self.assertTrue(self.rt.has("tp.assets:images/photo.jpg"))
+            self.assertEqual(self.rt.get("tp.assets:images/photo.jpg"), b"jpeg_data")
+
+    def test_custom_section_with_python_modules(self):
+        """Custom section discovers both files AND Python-defined resources."""
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            _write(tmp / "lllm.toml", textwrap.dedent("""\
+                [package]
+                name = "tp"
+
+                [tools]
+                paths = ["tools"]
+            """))
+            (tmp / "tools").mkdir()
+            (tmp / "tools" / "schema.json").write_text('{"type": "object"}')
+            _write(tmp / "tools" / "helpers.py", textwrap.dedent("""\
+                from lllm.core.prompt import Prompt
+                helper_prompt = Prompt(path="helper", prompt="Help!")
+            """))
+
+            from lllm.core.config import load_package
+            load_package(str(tmp / "lllm.toml"), runtime=self.rt)
+
+            # JSON file discovered
+            self.assertTrue(self.rt.has("tp.tools:schema.json"))
+            self.assertEqual(self.rt.get("tp.tools:schema.json"), {"type": "object"})
+            # Python prompt also discovered
+            self.assertTrue(self.rt.has("tp.tools:helpers/helper"))
+
+    def test_custom_section_load_resource(self):
+        """load_resource with full and section-only URLs."""
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            _write(tmp / "lllm.toml", '[package]\nname = "mypkg"\n[data]\npaths = ["data"]\n')
+            (tmp / "data").mkdir()
+            (tmp / "data" / "sample.json").write_text('[1, 2, 3]')
+
+            from lllm.core.config import load_package
+            from lllm.core.resource import load_resource
+            load_package(str(tmp / "lllm.toml"), runtime=self.rt)
+
+            # Full URL
+            self.assertEqual(load_resource("mypkg.data:sample.json", runtime=self.rt), [1, 2, 3])
+            # Section-only (default package)
+            self.assertEqual(load_resource("data:sample.json", runtime=self.rt), [1, 2, 3])
+
+    def test_custom_section_skips_dotfiles_and_pycache(self):
+        """Hidden files and __pycache__ are not discovered."""
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            _write(tmp / "lllm.toml", '[package]\nname = "tp"\n[assets]\npaths = ["assets"]\n')
+            (tmp / "assets").mkdir()
+            (tmp / "assets" / ".hidden").write_text("secret")
+            (tmp / "assets" / "__pycache__").mkdir()
+            (tmp / "assets" / "__pycache__" / "cache.pyc").write_bytes(b"xx")
+            (tmp / "assets" / "visible.txt").write_text("hello")
+
+            from lllm.core.config import load_package
+            load_package(str(tmp / "lllm.toml"), runtime=self.rt)
+
+            self.assertTrue(self.rt.has("tp.assets:visible.txt"))
+            self.assertFalse(self.rt.has("tp.assets:.hidden"))
+
 
 # ===========================================================================
 # Loader convenience API
@@ -481,6 +625,78 @@ class TestResolveConfig(unittest.TestCase):
         self.rt.register_config("y", {"base": "x"}, namespace="pkg.configs")
         with self.assertRaises(ValueError, msg="Circular"):
             resolve_config("x", self.rt)
+
+
+class TestVendorConfig(unittest.TestCase):
+
+    def setUp(self):
+        from lllm.core.runtime import Runtime
+        self.rt = Runtime()
+        self.rt._default_namespace = "my_pkg"
+
+    def test_vendor_no_overrides(self):
+        """vendor_config with no overrides returns resolved config as-is."""
+        from lllm.core.config import vendor_config
+        self.rt.register_config("default", {
+            "global": {"model_name": "gpt-4o"},
+            "agent_configs": [{"name": "a", "system_prompt": "hi"}],
+        }, namespace="dep_a.configs")
+
+        cfg = vendor_config("dep_a:default", runtime=self.rt)
+        self.assertEqual(cfg["global"]["model_name"], "gpt-4o")
+        self.assertEqual(len(cfg["agent_configs"]), 1)
+
+    def test_vendor_with_overrides(self):
+        """vendor_config deep-merges overrides on top."""
+        from lllm.core.config import vendor_config
+        self.rt.register_config("default", {
+            "global": {"model_name": "gpt-4o", "model_args": {"temperature": 0.5}},
+        }, namespace="dep_a.configs")
+
+        cfg = vendor_config("dep_a:default", {
+            "global": {"model_name": "gpt-4o-mini", "model_args": {"max_tokens": 100}},
+        }, runtime=self.rt)
+
+        # model_name overridden
+        self.assertEqual(cfg["global"]["model_name"], "gpt-4o-mini")
+        # model_args merged: original temperature + new max_tokens
+        self.assertEqual(cfg["global"]["model_args"]["temperature"], 0.5)
+        self.assertEqual(cfg["global"]["model_args"]["max_tokens"], 100)
+
+    def test_vendor_resolves_base_chain(self):
+        """vendor_config follows the base chain before applying overrides."""
+        from lllm.core.config import vendor_config
+        self.rt.register_config("base", {
+            "global": {"model_name": "gpt-4o", "model_args": {"temperature": 0.1}},
+        }, namespace="dep_a.configs")
+        self.rt.register_config("prod", {
+            "base": "dep_a:base",
+            "global": {"model_args": {"max_tokens": 2000}},
+        }, namespace="dep_a.configs")
+
+        cfg = vendor_config("dep_a:prod", {
+            "global": {"model_args": {"temperature": 0.01}},
+        }, runtime=self.rt)
+
+        # Chain: base → prod → overrides
+        self.assertEqual(cfg["global"]["model_name"], "gpt-4o")       # from base
+        self.assertEqual(cfg["global"]["model_args"]["max_tokens"], 2000)  # from prod
+        self.assertEqual(cfg["global"]["model_args"]["temperature"], 0.01) # from override
+
+    def test_vendor_result_is_independent(self):
+        """Vendored config does not mutate the original."""
+        from lllm.core.config import vendor_config
+        original = {"global": {"model_name": "gpt-4o", "nested": {"a": 1}}}
+        self.rt.register_config("orig", original, namespace="dep.configs")
+
+        cfg = vendor_config("dep:orig", {
+            "global": {"nested": {"b": 2}},
+        }, runtime=self.rt)
+
+        # Original not mutated
+        self.assertNotIn("b", original["global"]["nested"])
+        # Vendored has both
+        self.assertEqual(cfg["global"]["nested"], {"a": 1, "b": 2})
 
 
 # ===========================================================================

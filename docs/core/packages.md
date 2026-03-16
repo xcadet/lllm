@@ -6,308 +6,371 @@ An LLLM package is structured as follows:
 
 ```
 package_name/
-  ├── prompts/        # the prompts, for the agents to call, i.e., the functions or "calls"
-  ├── proxies/        # the proxies, for proxy-based tool-calling, mini in-dialog interpreter
-  ├── configs/        # the configs for the agents, i.e., the base models, system prompts, etc.
-  ├── tactics/        # the tactics, which are the programs that wire the agents and prompts together
-  ├── lllm.toml       # the metadata for the encapsulation, also for solving the dependency issues, etc.
+  ├── prompts/        # the prompts, for the agents to call
+  ├── proxies/        # the proxies, for proxy-based tool-calling
+  ├── configs/        # the configs for the agents (YAML files)
+  ├── tactics/        # the tactics, programs that wire agents and prompts together
+  ├── lllm.toml       # package metadata and dependency declarations
 ```
 
-An example structure of an LLLM agentic system is as follows:
+An example structure of an LLLM agentic system:
 
 ```
 project_name/
-├── lllm.toml         # to help LLLM find the prompts, proxies, configs, and tactics, etc.
-├── lllm_packages/    # a folder that contains the LLLM packages, you can put it anywhere as long as lllm.toml can find it.
-  ├── my_package1/      
-  ├── my_package2/       
-├── ... (other files and folders like your application code, data, etc.)
+├── lllm.toml         # root package — LLLM finds this automatically
+├── lllm_packages/
+  ├── my_package1/
+  ├── my_package2/
+├── ... (application code, data, etc.)
 ```
 
-Conceptually, LLLM maintains a huge registry of prompts, proxies, configs, and tactics, either local or shared, which are loaded on demand through the lllm.toml file. All the resources (prompts, proxies, agents, and tactics) are indexed by "URLs". When you are building an agentic system, you usually use tactics as the building blocks or modules, and use them to compose your own agentic system. It works in this way, the tactic find agent configs by keys, and finds prompts including system prompts from prompt registry. Then the proxy-based tool-calling is through the proxy registry. 
+Conceptually, LLLM maintains a registry of prompts, proxies, configs, and tactics, loaded on demand through the `lllm.toml` file. All resources are indexed by URLs of the form `<package>.<section>:<resource_path>`. Tactics are the top-level building blocks — they find agent configs by key, prompts from the prompt registry, and proxy-based tools from the proxy registry.
 
 
-## lllm.toml
+## Runtime Initialization
 
-lllm.toml defines a "node" of a dependency tree of lllm packages. Theoretically, you just need to put a single lllm.toml in your project root to load/link to the lllm packages, then you should be able to access all the resources in the project that you designated with no actual LLLM code in your project (as they can be in other places).
-
-The purpose of an lllm.toml is to help LLLM load the resources (prompts, proxies, configs, and tactics) to the runtime of the project. By default, the LLLM will look for the lllm.toml in the project root to build the default runtime. You can manually specify other {yourname}.toml to build the runtime for your own project. Or building multiple runtimes for different purposes.
-
-### Runtime Initialization
-
-By default, when LLLM is imported, it looks for `lllm.toml` starting from the current working directory and searching upward. If found, it loads the package tree into the default runtime. If no `lllm.toml` is found, the default runtime is initialized empty (useful for fast mode and testing), and a log-level info message is emitted.
-
-Users can also create named runtimes from specific toml files:
+By default, when LLLM is imported, it looks for `lllm.toml` starting from the current working directory and searching upward. If found, it loads the package tree into the default runtime. If no `lllm.toml` is found, the default runtime is initialized empty (useful for fast mode and testing).
 
 ```python
-from lllm import load_runtime, get_runtime
-
-# Auto-load from project root into default runtime (happens on import)
-from lllm import load_prompt  # default runtime already populated
+from lllm import load_prompt  # default runtime already populated from project root
 
 # Explicit load / replace default runtime
+from lllm import load_runtime
 load_runtime("path/to/custom.toml")
 
 # Named runtimes for parallel experiments
 load_runtime("experiment_a/lllm.toml", name="exp_a")
 load_runtime("experiment_b/lllm.toml", name="exp_b")
+
+from lllm import get_runtime
 rt_a = get_runtime("exp_a")
 rt_b = get_runtime("exp_b")
 ```
 
 
-### Resources
+## Resources
 
-In an LLLM package, you have four types of major resources: prompts, proxies, configs, and tactics, and optionally, you can pack your own custom resources into a package as a custom section. Every resource is internally attached to a `ResourceNode` object, which is automatically created once a Prompt, Proxy, Config, or Tactic is loaded into the runtime which manages a URL-based index of the resource tree. 
+LLLM has four built-in resource types: prompts, proxies, configs, and tactics. You can also define custom resource types via custom TOML sections.
 
-`ResourceNode` is a wrapper, not a base class — it wraps the actual resource object (Prompt, Tactic class, config dict, etc.) and holds registry metadata (qualified key, namespace, resource type, lazy loader). The existing classes (Prompt, Tactic, BaseProxy) do not need to inherit from it.
+Every resource is internally wrapped in a `ResourceNode` object, which manages the qualified key, namespace, lazy loading, and metadata. `ResourceNode` is a **wrapper**, not a base class — the existing classes (Prompt, Tactic, BaseProxy) do not inherit from it.
 
-For eager resources (prompts, tactics discovered at import time), the value is set immediately. For lazy resources (configs, custom assets), the `ResourceNode` holds a loader callable and the actual value is only read on first access, then cached.
-
-To make a general resource recognizable, you can use the `resource` decorator to decorate your custom resource class, with the loading happening in the `__init__` method, and LLLM will automatically recognize it as a resource. 
-
-Then you can load it by `load_resource("my_package1.my_custom_section:my_custom_resource")`. See the Format section below for more details.
+For eager resources (prompts, tactics discovered at import time), the value is set immediately. For lazy resources (config YAML files, custom assets), the `ResourceNode` holds a loader callable and the file is only read on first access, then cached.
 
 
-### Format
+## lllm.toml Format
 
-An lllm.toml has six official sections: [package], [prompts], [proxies], [configs], [tactics], and [dependencies]. You can also define custom sections like [my_custom_section], [assets], etc.
+An `lllm.toml` has six official sections: `[package]`, `[prompts]`, `[proxies]`, `[configs]`, `[tactics]`, and `[dependencies]`. Custom sections like `[assets]` are also supported.
 
-- [package]: the name of the "package", version, description, etc. Note that this is not the name of the project, but the name of the "package" that you are encapsulating. All the prompts, proxies, configs, and tactics you put in this toml file will be encapsulated under this package, even if they are in another package, and they will work under the namespace (prefix) of this package.
-- [prompts]: the folders of the prompts, if not specified, LLLM will look for `prompts/` in the same folder as the lllm.toml. If no `[prompts]` section is present and no `prompts/` subfolder exists, this section is simply empty.
-- [proxies]: the folders of the proxies, if not specified, LLLM will look for `proxies/` in the same folder as the lllm.toml. If no `[proxies]` section is present and no `proxies/` subfolder exists, this section is simply empty.
-- [configs]: the folders of the configs, if not specified, LLLM will look for `configs/` in the same folder as the lllm.toml. Configs are YAML files loaded lazily — the file is only read on first access. If no `[configs]` section is present and no `configs/` subfolder exists, this section is simply empty.
-- [tactics]: the folders of the tactics, if not specified, LLLM will look for `tactics/` in the same folder as the lllm.toml. If no `[tactics]` section is present and no `tactics/` subfolder exists, this section is simply empty.
-- [dependencies]: the dependencies of the package, which are name or path of other packages, which will be indexed by their names. If not specified, LLLM will not load any dependencies. Dependencies are loaded into their own namespace only. To re-export a dependency's resources into the current package namespace, list their paths explicitly in the relevant resource section.
-
-
-### Resource Indexing
-
-The resources (prompts, proxies, configs, tactics, and other custom sections besides [package], [dependencies]) are indexed by a URL with the format `<package_path>:<resource_path>`. There is always exactly one `:` separator in the URL.
-
-The `package_path` has the format `<package_name>.<section_name>`, and the `resource_path` has the format `<folder_name>/<sub_folder_name>/.../<file_name>/<resource_name>`.
-
-When a key collision occurs during discovery (two paths producing the same resource key), LLLM logs a warning identifying both sources. The later registration overwrites the earlier one. Use the `under` keyword (see Alias Loading) to disambiguate.
+- **[package]**: Package identity — name, version, description. All resources declared in this TOML are namespaced under this package name.
+- **[prompts]**: Paths to prompt folders. Defaults to `prompts/` if omitted. Empty if neither the section nor the subfolder exists.
+- **[proxies]**: Paths to proxy folders. Defaults to `proxies/`.
+- **[configs]**: Paths to config folders (YAML files, loaded lazily). Defaults to `configs/`.
+- **[tactics]**: Paths to tactic folders. Defaults to `tactics/`.
+- **[dependencies]**: Paths to other packages. Dependencies are loaded into their own namespace only. To re-export a dependency's resources into the current package namespace, list their paths explicitly in the relevant resource section.
 
 
-#### Example: Prompt Indexing
+## Resource Indexing
 
-You have two prompts folders loaded into the `prompts` section of package `my_package1` like `[prompts] paths = [".../<path_to_prompts_1>/prompts_1", ".../<path_to_prompts_2>/prompts_2"]`, and they have the following structure:
+Resources are indexed by URLs with the format `<package_name>.<section_name>:<resource_path>`. There is always exactly one `:` separator.
+
+The `resource_path` is built from the folder structure relative to the declared path root: `<subfolder>/.../<filename>/<object_name>`. Root folders are stripped — multiple `paths` entries merge into a flat namespace.
+
+When a key collision occurs during discovery (two paths producing the same resource key), LLLM logs a warning. The later registration overwrites the earlier one. Use the `under` keyword to disambiguate.
+
+### Example
+
+Given `[prompts] paths = [".../prompts_1", ".../prompts_2"]` under package `my_pkg`:
+
 ```
 prompts_1/
-├── my_prompts1.py
-├── sub_folder1/
-    ├── sub_folder2/
-        ├── my_prompts2.py
+├── greet.py          # contains: hello, goodbye
+├── sub/
+    ├── deep.py       # contains: analyzer
 
-# in some other place
 prompts_2/
-├── sub_folder3/
-    ├── my_prompts3.py
+├── tools.py          # contains: searcher
 ```
-And say each of the prompts files (my_prompts1.py to my_prompts3.py) have two prompts, all named as `my_prompt1`, `my_prompt2`. Then the full URLs of the resources are:
-- `my_package1.prompts:my_prompts1/my_prompt1`
-- `my_package1.prompts:my_prompts1/my_prompt2`
-- `my_package1.prompts:sub_folder1/sub_folder2/my_prompts2/my_prompt1`
-- `my_package1.prompts:sub_folder1/sub_folder2/my_prompts2/my_prompt2`
-- `my_package1.prompts:sub_folder3/my_prompts3/my_prompt1`
-- `my_package1.prompts:sub_folder3/my_prompts3/my_prompt2`
 
-Note that their root folders (`prompts_1`, `prompts_2`) are omitted in the URLs. After loading, they are all indexed in a flat structure, which was done through recursively traversing each provided path, just like putting all the files in a single `prompts` folder.
+The resulting URLs are:
 
+- `my_pkg.prompts:greet/hello`
+- `my_pkg.prompts:greet/goodbye`
+- `my_pkg.prompts:sub/deep/analyzer`
+- `my_pkg.prompts:tools/searcher`
 
-#### Convenience Access Functions
+### Convenience Access
 
-You can access resources by a full URL using the `load_resource` function. `load_resource` **always** requires the section name in the package path:
+Full URL via `load_resource` (always requires section):
 
 ```python
-# Full URL — always works
-load_resource("my_package1.prompts:my_prompts1/my_prompt1")
-
-# Section-only (no dot) — interpreted as section of the default package
-load_resource("prompts:my_prompts1/my_prompt1")
-# equivalent to: load_resource("my_system.prompts:my_prompts1/my_prompt1")
-# when my_system is the default package
+load_resource("my_pkg.prompts:greet/hello")
+load_resource("prompts:greet/hello")          # section-only → default package
 ```
 
-For the four built-in resource types, typed convenience functions allow omitting the section name:
+Typed convenience functions (section inferred):
 
 ```python
-# With package name — section inferred from function
-load_prompt("my_package1:my_prompts1/my_prompt1")
-
-# Without package name — uses default package
-load_prompt("my_prompts1/my_prompt1")
+load_prompt("my_pkg:greet/hello")             # package-qualified
+load_prompt("greet/hello")                     # bare → default package namespace
 ```
 
-You can implement your own convenience functions to load resources from custom sections.
 
+## Resource Loading
 
-### Resource Loading
-
-#### Example: Dependency-Only Loading
-
-```
-project_name/
-├── lllm.toml         
-├── lllm_packages/    
-  ├── my_package1/ 
-        ├── lllm.toml       
-  ├── my_package2/       
-├── ...
-
-shared_lllm_packages/
-  ├── shared_package1/ 
-        ├── lllm.toml       
-```
-
-Say your lllm.toml (project_name/lllm.toml) is:
+### Dependency-Only Loading
 
 ```toml
 [package]
 name = "my_system"
-version = "0.0.1"
-description = "A system for building agentic systems"
 
 [dependencies]
-packages = ["./lllm_packages/my_package1", "./lllm_packages/my_package2", "../shared_lllm_packages/shared_package1"]
+packages = ["./packages/child_pkg", "../shared/shared_pkg"]
 ```
 
-and the dependency lllm.toml files are:
-```toml
-# my_package1/lllm.toml
-[package]
-name = "my_package1"
-version = "0.0.1"
-
-# my_package2/lllm.toml
-[package]
-name = "my_package2"
-
-# shared_package1/lllm.toml
-[package]
-name = "shared_package1"
-```
-
-Then four packages are loaded into the runtime: my_system, my_package1, my_package2, and shared_package1. Since you are only loading by dependency, there are no resources under the my_system package — each dependency's resources live in their own namespace:
+Each dependency's resources live in their own namespace:
 
 ```python
-load_tactic("my_package1:my_tactic1")
-load_prompt("my_package2:folder1/my_prompt1")
-load_proxy("shared_package1:my_proxy1")
-load_config("my_package1:folder3/my_config1")
+load_prompt("child_pkg:greet/hello")
+load_prompt("shared_pkg:tools/searcher")
 ```
 
+No resources exist under `my_system` — dependencies are isolated unless re-exported.
 
-#### Example: Re-Exporting Into the Current Namespace
 
-If you also list paths explicitly in the resource sections:
+### Re-Exporting Into the Current Namespace
+
+List paths explicitly in resource sections to include them in the current package's namespace:
 
 ```toml
 [package]
 name = "my_system"
-version = "0.0.1"
-description = "A system for building agentic systems"
 
 [prompts]
-paths = ["./lllm_packages/my_package1/prompts", "./lllm_packages/my_package2/prompts", "../shared_lllm_packages/shared_package1/prompts"]
-
-[proxies]
-paths = ["./lllm_packages/my_package1/proxies", "./lllm_packages/my_package2/proxies", "../shared_lllm_packages/shared_package1/proxies"]
-
-[configs]
-paths = ["./lllm_packages/my_package1/configs", "./lllm_packages/my_package2/configs", "../shared_lllm_packages/shared_package1/configs"]
-
-[tactics]
-paths = ["./lllm_packages/my_package1/tactics", "./lllm_packages/my_package2/tactics", "../shared_lllm_packages/shared_package1/tactics"]
+paths = ["./packages/child_pkg/prompts", "../shared/shared_pkg/prompts"]
 
 [dependencies]
-packages = ["./lllm_packages/my_package1", "./lllm_packages/my_package2", "../shared_lllm_packages/shared_package1"]
+packages = ["./packages/child_pkg", "../shared/shared_pkg"]
 ```
 
-Then the resources are loaded into **both** my_system's namespace (via the explicit paths) and each dependency's own namespace (via the dependency declarations). Since my_system is the default package, you can access resources with or without the package prefix:
+Now resources are accessible via both namespaces:
 
 ```python
-# Via default package namespace (my_system) — prefix omitted
-load_tactic("my_tactic1")
-load_prompt("my_prompt1")
-
-# Via dependency namespace — always works
-load_tactic("my_package1:my_tactic1")
-load_prompt("my_package2:my_prompt1")
-
-# Via full URL
-load_resource("my_system.tactics:my_tactic1")
-load_resource("my_package1.prompts:my_prompt1")
+load_prompt("greet/hello")                    # via my_system (default)
+load_prompt("child_pkg:greet/hello")          # via dependency namespace
 ```
 
 
-### Alias Loading
+## Alias Loading
 
-Name collisions can occur when multiple sources produce resources with the same key. Two aliasing mechanisms address this:
+Two mechanisms address name collisions:
 
-- `as` on dependencies — creates an **additional** alias for a package. The original package name still works.
-- `under` on resource paths — adds a virtual root folder prefix to all resources from that path, within the *importing* package's namespace.
+- **`as`** on dependencies — creates an additional alias. The original name still works.
+- **`under`** on resource paths — adds a virtual root folder prefix within the importing package's namespace.
 
-Both keywords can be specified either as inline strings (using the `as` / `under` keywords) or as standard TOML inline tables (using `alias` / `prefix` keys). The two forms are exactly equivalent — use whichever you prefer:
+Both can be specified as inline strings or standard TOML inline tables — the two forms are exactly equivalent:
 
 ```toml
-# String keyword form — convenient for simple cases
-packages = ["./lllm_packages/my_package1 as pkg1"]
-paths = ["./some/path under vfolder1"]
+# String keyword form
+packages = ["./packages/child_pkg as cp"]
+paths = ["./some/path under vendor"]
 
-# TOML inline table form — standard TOML, works with any path
-packages = [{path = "./lllm_packages/my_package1", alias = "pkg1"}]
-paths = [{path = "./some/path", prefix = "vfolder1"}]
+# TOML inline table form
+packages = [{path = "./packages/child_pkg", alias = "cp"}]
+paths = [{path = "./some/path", prefix = "vendor"}]
+
+# Table form also accepts the keyword names
+packages = [{path = "./packages/child_pkg", as = "cp"}]
+paths = [{path = "./some/path", under = "vendor"}]
 ```
 
-The table form also accepts the keyword names as keys (`as` and `under`) for consistency:
-
-```toml
-packages = [{path = "./lllm_packages/my_package1", as = "pkg1"}]    # same as alias = "pkg1"
-paths = [{path = "./some/path", under = "vfolder1"}]                 # same as prefix = "vfolder1"
-```
-
-
-#### Alias Example
+### Example
 
 ```toml
 [package]
 name = "my_system"
-version = "0.0.1"
-description = "A system for building agentic systems"
 
 [tactics]
-paths = ["./lllm_packages/my_package1/tactics under vfolder1", "./lllm_packages/my_package2/tactics under vfolder2", "../shared_lllm_packages/shared_package1/tactics"]
+paths = ["./pkg1/tactics under v1", "./pkg2/tactics under v2"]
 
 [prompts]
-paths = ["./lllm_packages/my_package1/prompts", "./lllm_packages/my_package2/prompts under vfolder1", "../shared_lllm_packages/shared_package1/prompts under vfolder2"]
+paths = ["./pkg1/prompts", "./pkg2/prompts under vendor"]
 
 [dependencies]
-packages = ["./lllm_packages/my_package1 as pkg1", "./lllm_packages/my_package2 as pkg2", "../shared_lllm_packages/shared_package1 as pkg3"]
+packages = ["./pkg1 as p1", "./pkg2 as p2"]
 ```
 
-This creates four package-level namespaces: my_system (default, omittable), pkg1, pkg2, pkg3. The `as` keyword creates an additional alias — the original names (my_package1, my_package2, shared_package1) still work.
-
-The `under` keyword creates virtual root folders **within my_system's namespace**. It does not affect the dependency's own namespace:
+Access patterns:
 
 ```python
-# Tactics from my_package1's folder, re-exported into my_system with vfolder1 prefix:
-load_tactic("vfolder1/my_tactic1")                    # via my_system (default)
-load_tactic("my_system:vfolder1/my_tactic1")           # explicit — same thing
+# Tactics from pkg1, re-exported into my_system with v1 prefix:
+load_tactic("v1/my_tactic")                 # via default namespace
+load_tactic("my_system:v1/my_tactic")        # explicit
 
-# Same tactic via my_package1's own namespace (no vfolder prefix there):
-load_tactic("my_package1:my_tactic1")                  # via original name
-load_tactic("pkg1:my_tactic1")                         # via alias
+# Same tactic via pkg1's own namespace (no prefix):
+load_tactic("p1:my_tactic")                  # via alias
+load_tactic("pkg1:my_tactic")                # via original name (still works)
 
-# Tactics from shared_package1, re-exported into my_system without prefix:
-load_tactic("shared_tactic1")                          # via my_system (default)
-load_tactic("pkg3:shared_tactic1")                     # via alias
-
-# Prompts from my_package2, re-exported with vfolder1 prefix:
-load_prompt("vfolder1/my_prompt1")                     # via my_system (default)
-load_prompt("my_package2:my_prompt1")                  # via own namespace (no prefix)
-load_prompt("pkg2:my_prompt1")                         # via alias (no prefix)
+# Prompts from pkg2 with vendor prefix:
+load_prompt("vendor/my_prompt")              # via default namespace
+load_prompt("p2:my_prompt")                  # via alias (no prefix)
 ```
 
 Note: `under` modifies how resources appear in the **importing** package's namespace, not in the source package's own namespace.
+
+
+## Custom Sections
+
+Beyond the four built-in sections, you can define any custom section in `lllm.toml` to package arbitrary files — images, ML model weights, JSON schemas, data files, or anything else your system needs.
+
+### How It Works
+
+Custom sections follow the same `paths` / `under` mechanics as built-in sections. During discovery, LLLM walks the declared folders and registers every file as a lazy `ResourceNode`. Files are **not read until first access** — a package with 500MB of model weights costs nothing at import time.
+
+File loading behavior depends on extension:
+
+| Extension | Loaded as |
+| --- | --- |
+| `.json` | Parsed via `json.load` → `dict` / `list` |
+| `.yaml`, `.yml` | Parsed via `yaml.safe_load` → `dict` / `list` |
+| `.toml` | Parsed via `tomllib.load` → `dict` |
+| Everything else | Raw `bytes` via `Path.read_bytes()` |
+
+Resource keys **include the file extension** (unlike Python-based sections where `.py` is stripped), because the extension is part of the file identity — `logo.png` and `logo.svg` are different resources.
+
+Any `.py` files in custom section folders are also scanned for Python-defined resources (Prompt, Tactic, BaseProxy subclasses), so you can mix code and data in the same section.
+
+### Declaring Custom Sections
+
+```toml
+[package]
+name = "my_toolkit"
+
+[assets]
+paths = ["assets"]
+
+[models]
+paths = ["models"]
+
+[schemas]
+paths = ["schemas"]
+```
+
+With this directory structure:
+
+```
+my_toolkit/
+├── lllm.toml
+├── assets/
+│   ├── logo.png
+│   ├── banner.svg
+│   └── templates/
+│       └── email.html
+├── models/
+│   └── classifier.pt
+└── schemas/
+    └── api_spec.json
+```
+
+### Accessing Custom Resources
+
+Use `load_resource` with `"pkg.section:path"` or `"section:path"` (section-only uses default package):
+
+```python
+from lllm import load_resource
+
+# Full URL
+logo_bytes = load_resource("my_toolkit.assets:logo.png")           # → bytes
+api_spec = load_resource("my_toolkit.schemas:api_spec.json")       # → dict (parsed)
+
+# Section-only (if my_toolkit is the default package)
+logo_bytes = load_resource("assets:logo.png")
+html = load_resource("assets:templates/email.html")                # → bytes
+
+# Nested paths work naturally
+weights = load_resource("models:classifier.pt")                    # → bytes
+```
+
+### Getting the File Path Directly
+
+For large files or custom formats where the default loader isn't appropriate (e.g., loading a PyTorch model with `torch.load`), access the `ResourceNode` directly to get the file path:
+
+```python
+from lllm import get_default_runtime
+
+runtime = get_default_runtime()
+node = runtime.get_node("my_toolkit.models:classifier.pt")
+
+# The absolute file path is stored in metadata
+file_path = node.metadata["file_path"]
+
+# Use your own loader
+import torch
+model = torch.load(file_path)
+```
+
+### Custom Sections with `under` Prefix
+
+The `under` keyword works the same way as for built-in sections:
+
+```toml
+[assets]
+paths = [
+    "./icons under ui",
+    "./photos under content",
+]
+```
+
+```python
+load_resource("assets:ui/check.svg")
+load_resource("assets:content/hero.jpg")
+```
+
+### Example: ML Pipeline Package
+
+```toml
+[package]
+name = "sentiment_analyzer"
+
+[prompts]
+paths = ["prompts"]
+
+[configs]
+paths = ["configs"]
+
+[models]
+paths = ["models"]
+
+[assets]
+paths = ["assets"]
+```
+
+```
+sentiment_analyzer/
+├── lllm.toml
+├── prompts/
+│   └── classify.py           # Prompt objects
+├── configs/
+│   └── default.yaml          # agent config
+├── models/
+│   ├── tokenizer.json        # parsed as dict automatically
+│   └── weights.bin           # loaded as bytes
+└── assets/
+    └── label_map.json        # parsed as dict automatically
+```
+
+```python
+from lllm import load_prompt, load_config, load_resource, resolve_config, get_default_runtime
+
+# Typed loaders for built-in sections
+prompt = load_prompt("sentiment_analyzer:classify/system")
+config = resolve_config("default")
+
+# Custom sections via load_resource
+label_map = load_resource("models:label_map.json")   # → {"0": "negative", "1": "positive"}
+tokenizer = load_resource("models:tokenizer.json")   # → dict
+
+# Large binary — get path, load with custom code
+node = get_default_runtime().get_node("sentiment_analyzer.models:weights.bin")
+weights_path = node.metadata["file_path"]
+# model = my_framework.load(weights_path)
+```

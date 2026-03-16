@@ -107,21 +107,25 @@ pytest tests/
 - [x] Refactor providers system: LiteLLM invoker (invokers/)
 - [x] Refactor registry to runtime (runtime.py), and discovery system (discovery.py)
 - [x] Refactor prompt model and prompt management (prompt.py)
-  - [x] Prompt composition and inheritance (compose templates, config tools, etc.), using jinja or something else like dspy solutions
-  - [x] More graceful tool, i.e., now it relies on `link_function`, which separates declaration and definition of a tool, if it is good?
-  - [x] Clearing up ad-hoc designs, like now cua args, etc. are nakedly attatched as properties, whenever there is a new feature, it is added as a property, which is not good.
-  - [x] Better parsing system, more intuitive and better argument passing, now its through a dict, which is primitive and not type safe.
-  - [x] Better handling system for error, exception, interrupt, etc. (need to be co-designed with the agent parts)
-  --- 
-  - [-] Provide a version control solution, either allow using git or something else, to assist tuning, A/B testing, prompt optimization, etc.
-    - [-] Assisting tracking system to help experiment (may also need to be co-designed with the agentic system parts)
-    - [-] we do not need to build those wheels in lllm, but should be friendly to integrate with other version control or management systems. May need to refer to these solutions, so knowing how to be friendly to them. Or directly provide an interface to a popular solution (which one is the most popular?). Like having an abstract base class for all such version control, management, analysis, etc.
-    - Just do not do it, any design now will be an overly pre design
+  - [x] Prompt composition and inheritance
+  - [x] More graceful tool (link_function)
+  - [x] Clearing up ad-hoc designs
+  - [x] Better parsing system, more intuitive argument passing
+  - [x] Better handling system for error, exception, interrupt
 - [x] Refactor message and dialog model/state management, better arg passing (dialog.py)
-  - Dialog provides low-level operations, and advanced arg passings are provided by Agent etc. below
 - [x] Refactor agent model, agent call (agent.py)
 - [x] Refactor tactics (tactic.py)
-- [ ] -> Refactor config and package system (config.py, lllm.toml)
+- [x] Refactor config and package system (config.py, lllm.toml, etc.)
+  - [x] Package system with `lllm.toml` — namespaced resource URLs (`pkg.section:resource`)
+  - [x] Dependency tree with recursive loading and cycle detection
+  - [x] Alias support (`as` for packages, `under` for virtual folder prefixes)
+  - [x] Unified ResourceNode-based registry with lazy loading
+  - [x] Named runtimes (`load_runtime`, `get_runtime`) for parallel experiments
+  - [x] Auto-initialization from project root `lllm.toml`
+  - [x] Agent config YAML: `global` defaults, `agent_configs` list, `base` inheritance with deep merge
+  - [x] `AgentSpec` with inline `system_prompt` or `system_prompt_path` resolution
+  - [x] `resolve_config()` for recursive config inheritance
+  - [x] Convenience loaders: `load_prompt`, `load_tactic`, `load_proxy`, `load_config`, `load_resource`
 - [ ] Logger (cli logging), replayable logging system, and printing system (log.py, utils.py)
 - [ ] Fast mode, 5-line code to build a simple system.
 
@@ -131,7 +135,7 @@ pytest tests/
 - [ ] Proxy-based tool-calling, mini in-dialog interpreter (proxies/)
 - [ ] Support skills in agent config, see https://agentskills.io
 - [ ] Default Context Manager for prune over-size dialogs
-= [ ] Better sandbox, e.g., browser sandbox, code sandbox, etc. maybe use sandbox wheels (sandbox/)
+- [ ] Better sandbox, e.g., browser sandbox, code sandbox, etc. maybe use sandbox wheels (sandbox/)
 - [ ] Shareable Tactics, Prompts, Proxies, Configs, etc.
 
 

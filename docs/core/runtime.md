@@ -1,119 +1,154 @@
 # Runtime & Registries
 
-Every LLLM runtime needs a place to look up prompts, proxies, and agent types by name. `Runtime` is that place — a lightweight container that holds the three registries and the discovery flag. It replaces the scattered module-level dicts that previously served this role.
+Every LLLM runtime needs a place to look up prompts, proxies, tactics, configs, and custom resources by name. `Runtime` is that place — a unified `ResourceNode`-based store with namespace-aware resolution.
+
 
 ## The Default Runtime
 
-Most users never interact with Runtime directly. A default instance is created when `lllm.core.runtime` is imported — no scanning, no side effects, just an empty container:
+A default instance is created when `lllm.core.runtime` is imported — empty, no side effects. When the `lllm` package is imported, `_auto_init()` searches for `lllm.toml` from the working directory upward and populates the default runtime. If no TOML is found, the runtime stays empty (fast mode).
 
 ```python
 from lllm.core.runtime import get_default_runtime
 
 runtime = get_default_runtime()
-print(runtime.prompts)   # {} — empty until something registers
-print(runtime.proxies)   # {}
-print(runtime.agents)    # {}
+print(runtime.keys("prompt"))   # list qualified keys of all prompts
 ```
 
-Every convenience function in the framework (`register_prompt`, `register_proxy`, `register_agent_class`, `auto_discover`) operates on this default instance when no explicit runtime is passed. The rule is simple: **if you don't pass a runtime, you get the global one.**
 
-## Registering Into a Runtime
+## Named Runtimes
 
-### Prompts
+For parallel experiments or testing, create named runtimes:
 
 ```python
-from lllm import Prompt, register_prompt
+from lllm import load_runtime, get_runtime
 
-# Module-level convenience — registers into default runtime
-my_prompt = Prompt(path="chat/greeting", prompt="Hello, {name}!")
-register_prompt(my_prompt)
+load_runtime("experiment_a/lllm.toml", name="exp_a")
+load_runtime("experiment_b/lllm.toml", name="exp_b")
+
+rt_a = get_runtime("exp_a")
+rt_b = get_runtime("exp_b")
 ```
 
-Auto-discovery does the same thing. When `lllm.toml` lists a prompts folder, every `Prompt` object found at module scope gets registered into the runtime that discovery was invoked with.
+Each runtime has its own isolated registry. `load_runtime()` with no name replaces the default.
 
-### Proxies
+
+## Internal Architecture
+
+All resources are stored as `ResourceNode` objects in a single `_resources` dict, keyed by their qualified key (e.g. `"my_pkg.prompts:greet/hello"`). A `_type_index` maps resource types to sets of qualified keys for fast filtered iteration.
+
+```
+Runtime
+├── _resources: Dict[str, ResourceNode]    # "pkg.section:key" → node
+├── _type_index: Dict[str, Set[str]]       # "prompt" → {"pkg.prompts:a", ...}
+├── packages: Dict[str, PackageInfo]       # "pkg_name" → metadata
+├── _loaded_package_paths: Set[str]        # cycle detection
+└── _default_namespace: Optional[str]      # root package name
+```
+
+
+## Resource Resolution
+
+When you call `runtime.get(key)` or any typed convenience method, the resolution order is:
+
+1. **Exact match** — if `key` exists in `_resources`, return it.
+2. **Default namespace fallback** — if `key` has no `:`, try `default_ns.<section>s:key` for each built-in section (prompts, proxies, tactics, configs).
+3. **Section injection** — if `key` has `:` but no `.` in the package part (e.g. `"pkg:foo"`), and a `resource_type` is specified, try `"pkg.<type>s:foo"`.
+
+This means:
+- `get_prompt("greet/hello")` → tries `my_system.prompts:greet/hello`
+- `get_prompt("child_pkg:greet/hello")` → tries `child_pkg.prompts:greet/hello`
+- `get("my_pkg.prompts:greet/hello")` → exact match
+
+
+## Registering Resources
+
+### Via Discovery (Automatic)
+
+`load_package()` scans folders declared in `lllm.toml` and registers everything it finds:
 
 ```python
-from lllm.proxies import BaseProxy, ProxyRegistrator
+from lllm import load_package
 
-@ProxyRegistrator(path="search/web", name="Web Search", description="Search the web")
-class WebProxy(BaseProxy):
-    ...
+load_package("path/to/lllm.toml")
+# All prompts, proxies, tactics, configs now in the runtime
 ```
 
-`ProxyRegistrator` registers the class into the runtime at decoration time. Like prompts, this goes into the default runtime unless an explicit runtime is passed.
-
-### Agent Types
-
-Agent type registration is automatic. Subclassing `Tactic` triggers `__init_subclass__`, which calls `register_agent_class`:
+### Via Typed Convenience Methods
 
 ```python
-from lllm import Tactic
+from lllm import Prompt
+from lllm.core.runtime import get_default_runtime
 
-class MyAgent(Tactic):
-    tactic_type = "my_agent"
-    agent_group = ["assistant"]
-    
-    def call(self, task, **kwargs):
-        ...
-# MyAgent is now registered as "my_agent" in the default runtime
+runtime = get_default_runtime()
+
+# Register a prompt
+p = Prompt(path="test/greeting", prompt="Hello {name}!")
+runtime.register_prompt(p, namespace="my_pkg.prompts")
+
+# Register a proxy class
+runtime.register_proxy("search/web", WebProxy, namespace="my_pkg.proxies")
+
+# Register a tactic class
+runtime.register_tactic("analytica", AnalyticaTactic, namespace="my_pkg.tactics")
+
+# Register a config (eager or lazy)
+runtime.register_config("default", {"model_name": "gpt-4o"}, namespace="my_pkg.configs")
+runtime.register_config("heavy", loader=lambda: yaml.safe_load(open("heavy.yaml")),
+                         namespace="my_pkg.configs")
 ```
 
-Because `__init_subclass__` fires at class definition time (before any instance exists), agent types always register into the default runtime. Agent *instances*, however, use whatever runtime is passed to `Tactic.__init__`.
-
-## How Context Flows Through the System
-
-The runtime is threaded as an optional parameter that defaults to the global instance. This means existing code never has to change, but advanced users can inject their own.
-
-**Tactic** receives and stores it:
+### Via Low-Level API
 
 ```python
-agent = MyAgent(config, ckpt_dir="./ckpt", runtime=my_runtime)
-# agent._runtime is now my_runtime
-# all prompt lookups, discovery, and agent construction use my_runtime
+from lllm.core.resource import ResourceNode
+
+node = ResourceNode.eager("logo.png", image_bytes,
+                          namespace="my_pkg.assets", resource_type="asset")
+runtime.register(node)
+
+# Lazy loading
+node = ResourceNode.lazy("big_data", loader=lambda: load_parquet("data.parquet"),
+                          namespace="my_pkg.datasets", resource_type="dataset")
+runtime.register(node)
 ```
 
-**Discovery** populates it:
+
+## Retrieving Resources
 
 ```python
-from lllm.core.discovery import auto_discover
+# Typed convenience (section inferred)
+prompt = runtime.get_prompt("greet/hello")
+tactic_cls = runtime.get_tactic("analytica")
+proxy_cls = runtime.get_proxy("search/web")
+config = runtime.get_config("default")
 
-auto_discover(runtime=my_runtime)
-# scans lllm.toml folders, registers prompts and proxies into my_runtime
+# Generic (requires full URL or section+key)
+value = runtime.get("my_pkg.assets:logo.png")
+
+# Module-level convenience
+from lllm import load_prompt, load_tactic, load_config, load_resource
+
+prompt = load_prompt("child_pkg:greet/hello")
+config = load_config("experiments/ablation")
+asset = load_resource("my_pkg.assets:logo.png")
 ```
 
-**Proxy runtime** reads from it:
-
-```python
-from lllm.proxies import Proxy
-
-proxy = Proxy(activate_proxies=["search/web"], runtime=my_runtime)
-# instantiates only proxies registered in my_runtime
-```
-
-**Dialog.from_dict** uses it to resolve prompt references when reconstructing a dialog from a checkpoint:
-
-```python
-dialog = Dialog.from_dict(saved_data, log_base=log, runtime=my_runtime)
-```
 
 ## Isolated Runtimes for Testing
 
-The primary use case for explicit runtimes is test isolation. Each test can create a fresh runtime, register what it needs, and tear down without affecting anything else:
-
 ```python
+from lllm.core.runtime import Runtime
+
 def test_my_agent():
     runtime = Runtime()
-    runtime.register_prompt(Prompt(path="test/prompt", prompt="..."))
-    
+    runtime.register_prompt(Prompt(path="test/prompt", prompt="..."),
+                            namespace="test.prompts")
     agent = MyAgent(config, ckpt_dir="/tmp/test", runtime=runtime)
     result = agent("hello")
-    
-    assert "test/prompt" in runtime.prompts
-    # no cleanup needed — ctx is garbage collected
+    assert runtime.has("test.prompts:test/prompt")
 ```
 
-For test suites that share a runtime across multiple tests, `runtime.reset()` clears all registries and resets the discovery flag:
+`runtime.reset()` clears all registries and resets state:
 
 ```python
 @pytest.fixture(autouse=True)
@@ -123,26 +158,6 @@ def clean_runtime():
     runtime.reset()
 ```
 
-## Isolated Runtimes for Parallel Experiments
-
-Researchers can run two agent configurations side-by-side in the same process by giving each its own runtime:
-
-```python
-from lllm.core.runtime import Runtime
-from lllm.core.discovery import auto_discover
-
-runtime_a = Runtime()
-runtime_b = Runtime()
-
-# Populate with different prompt sets
-auto_discover(config_path="experiment_a/lllm.toml", runtime=runtime_a)
-auto_discover(config_path="experiment_b/lllm.toml", runtime=runtime_b)
-
-agent_a = MyAgent(config_a, ckpt_dir="./run_a", runtime=runtime_a)
-agent_b = MyAgent(config_b, ckpt_dir="./run_b", runtime=runtime_b)
-```
-
-Each agent sees only the prompts and proxies registered in its own runtime. Discovery runs independently for each (tracked by `runtime._discovery_done`). 
 
 ## API Reference
 
@@ -150,21 +165,34 @@ Each agent sees only the prompts and proxies registered in its own runtime. Disc
 
 | Method | Description |
 | --- | --- |
-| `register_prompt(prompt, overwrite=True)` | Add a `Prompt` keyed by `prompt.path`. Raises `ValueError` on duplicate if `overwrite=False`. |
-| `get_prompt(path)` | Retrieve a prompt by path. Raises `KeyError` if not found. |
-| `register_proxy(name, proxy_cls, overwrite=False)` | Add a `BaseProxy` subclass keyed by name. |
-| `register_tactic(tactic_type, tactic_cls, overwrite=False)` | Add an `Tactic` subclass keyed by tactic type string. |
-| `reset()` | Clear all registries and reset the discovery flag. |
+| `register(node, overwrite=True)` | Register any `ResourceNode`. |
+| `get(key, resource_type=None)` | Retrieve a resource value with namespace resolution. |
+| `get_node(key, resource_type=None)` | Retrieve the `ResourceNode` itself (not `.value`). |
+| `has(key)` | Check existence without raising. |
+| `keys(resource_type=None)` | List qualified keys, optionally filtered. |
+| `register_prompt(prompt, overwrite, namespace)` | Typed registration for prompts. |
+| `get_prompt(path)` | Typed retrieval for prompts. |
+| `register_proxy(name, cls, overwrite, namespace)` | Typed registration for proxies. |
+| `get_proxy(path)` | Typed retrieval for proxies. |
+| `register_tactic(name, cls, overwrite, namespace)` | Typed registration for tactics. |
+| `get_tactic(name)` | Typed retrieval for tactics. |
+| `register_config(name, data, overwrite, namespace, loader)` | Typed registration (eager or lazy). |
+| `get_config(path)` | Typed retrieval (triggers lazy load). |
+| `register_package(pkg)` | Register a `PackageInfo`. |
+| `reset()` | Clear all state. |
 
 ### Module-Level Helpers
 
 | Function | Description |
 | --- | --- |
-| `get_default_runtime()` | Returns the process-wide default `Runtime` instance. |
-| `set_default_runtime(runtime)` | Replace the default instance. Use sparingly — mainly for test harnesses or application bootstrap. |
+| `get_default_runtime()` | Returns the process-wide default `Runtime`. |
+| `set_default_runtime(rt)` | Replace the default. |
+| `get_runtime(name=None)` | Get a runtime by name (`None` = default). |
+| `load_runtime(path=None, name=None)` | Create, populate, and store a runtime. |
+
 
 ## Design Notes
 
-- **Creating a Runtime has zero side effects.** No file scanning, no imports, no network calls. It is an empty container until something explicitly registers into it.
-- **One piece of global state remains:** the `_DEFAULT_AUTO_DISCOVER` flag in `discovery.py`, which controls whether `auto_discover_if_enabled` runs by default. This is a process-wide behavioral preference, not registry state, so it deliberately lives outside Runtime.
-- **Runtime is not thread-safe.** If you need concurrent registration (unusual in practice), wrap calls in a lock or create per-thread runtimes. The normal usage — discover once at startup, read many times during agent calls — has no contention.
+- **Creating a Runtime has zero side effects.** No scanning, no imports. It is an empty container until something registers into it.
+- **Single storage, smart resolution.** Each resource is stored once under its qualified key. Bare-key and package-shorthand access is handled at read time by `_resolve()`, not by storing duplicates.
+- **Runtime is not thread-safe** for concurrent *registration*. The normal pattern — discover once at startup, read many times during agent calls — has no contention. For concurrent registration, wrap in a lock or use per-thread runtimes.

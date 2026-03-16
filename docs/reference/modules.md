@@ -1,34 +1,32 @@
-# Module Reference (NEED UPDATE)
+# Module Reference
 
-This section lists the primary modules in the repository with short descriptions so you can jump into the right file quickly.
+This section lists the primary modules in the repository.
 
 ## Core Package (`lllm/`)
 
 | File | Description |
 | --- | --- |
-| `lllm/__init__.py` | Public package exports and `auto_discover()` invocation. |
-| `lllm/core/agent.py` | Agent framework (dialogs, agent call loop, prompt registry utilities). |
-| `lllm/models.py` | Dataclasses for `Prompt`, `Message`, `Function`, `FunctionCall`, MCP descriptors, and parsing helpers. |
-| `lllm/const.py` | Enumerations (roles, providers, features), model cards, pricing utilities, and tokenizer helpers. |
-| `lllm/providers/` | Provider registry plus concrete backends (currently OpenAI chat/responses) implementing `BaseProvider`. |
-| `lllm/log.py` | Replayable logging base classes plus `LocalFileLog` and `NoLog`. |
-| `lllm/utils.py` | Filesystem helpers, caching, HTML utilities, frontend wrappers, and HTTP helper functions (`call_api`, `directory_tree`, etc.). |
-| `lllm/config.py` | Functions for locating and loading `lllm.toml`, plus environment-variable guards. |
-| `lllm/core/config.py` | Config system and auto-discovery of prompts and proxies based on `lllm.toml`; includes module loader, helpers. |
-| `lllm/proxies.py` | `BaseProxy`, endpoint decorators, runtime `Proxy`, and supporting utilities (auto docs, auto tests, cutoff filtering). |
-| `lllm/sandbox.py` | Notebook sandbox with `JupyterSession`, kernel management, and helper enums for programmatic execution. |
-| `lllm/tools/cua.py` | Experimental Computer Use Agent for Playwright-driven browser automation. |
-| `lllm/cli.py` | Implementation of the `lllm` command-line interface and template renderer. |
-| `lllm/README.md` | Additional background on agent calls, prompts, and handlers. |
+| `lllm/__init__.py` | Public exports, `_auto_init()` to populate the default runtime from `lllm.toml`. |
+| `lllm/core/resource.py` | `ResourceNode` (lazy/eager wrapper), `PackageInfo`, and convenience loaders (`load_prompt`, `load_tactic`, `load_proxy`, `load_config`, `load_resource`). |
+| `lllm/core/runtime.py` | `Runtime` — unified `ResourceNode`-based registry with namespace-aware resolution. Named runtimes via `load_runtime` / `get_runtime`. |
+| `lllm/core/config.py` | Package loading (`load_package`), TOML parsing, resource discovery, config inheritance (`resolve_config`, `_deep_merge`), `AgentSpec`, `parse_agent_configs`. |
+| `lllm/core/prompt.py` | `Prompt` model — template, parser, tools, handler. `Function`, `FunctionCall`, `MCP` descriptors. |
+| `lllm/core/dialog.py` | `Dialog` — append-only message sequence with tree structure. `Message`, `DialogTreeNode`. Serialization uses qualified prompt keys. |
+| `lllm/core/agent.py` | `Agent` — dialog management, agent call loop, retry/interrupt handling. |
+| `lllm/core/tactic.py` | `Tactic` — top-level abstraction wiring agents to prompts. `TacticCallSession`, `_TrackedAgent`, `build_tactic`, `register_tactic_class`. |
+| `lllm/core/const.py` | Enumerations (`Roles`, `Modalities`, `APITypes`), model cards, pricing utilities. |
+| `lllm/core/log.py` | Replayable logging base classes (`ReplayableLogBase`, `LocalFileLog`, `NoLog`). |
+| `lllm/proxies/base.py` | `BaseProxy`, `Proxy` runtime, `ProxyRegistrator` decorator, endpoint metadata. Namespace-aware proxy activation. |
+| `lllm/proxies/builtin/` | Built-in proxy implementations (financial data, search, etc.). |
+| `lllm/invokers/` | Provider registry and concrete backends implementing `BaseInvoker`. |
+| `lllm/sandbox/` | `JupyterSession`, kernel management for code execution. |
+| `lllm/tools/cua.py` | Experimental Computer Use Agent (Playwright browser automation). |
+| `lllm/cli.py` | `lllm` command-line interface and template renderer. |
+| `lllm/utils.py` | Filesystem helpers, caching, HTTP utilities, stream wrappers. |
 
 ## Templates & Examples (`template/`)
 
 | Path | Description |
 | --- | --- |
-| `template/init_template/` | Minimal scaffold used by `lllm create`. Includes `lllm.toml`, config stub, and `SimpleSystem`. |
-| `template/example/` | Comprehensive example with system orchestration, prompt definitions, proxy modules, and MCP wiring. |
-| `template/example/system/system.py` | Demonstrates experiment/stream management, sync/async call wrappers, and error handling. |
-| `template/example/system/agent/agent.py` | Implements the `Vanilla` agent that orchestrates prompts and dialogs. |
-| `template/example/system/proxy/modules/*.py` | Realistic proxy implementations (financial data, Google Trends, FRED, Wolfram Alpha, etc.). |
-
-Use this table as a quick index when contributing or debugging.
+| `template/init_template/` | Minimal scaffold used by `lllm create`. Includes `lllm.toml`, config stub. |
+| `template/example/` | Comprehensive example with system orchestration, prompts, proxies, and MCP wiring. |

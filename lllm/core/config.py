@@ -317,9 +317,119 @@ def _discover_section(
 
         if section_name == CONFIG_SECTION:
             _discover_configs(path, runtime, namespace, resource_type, prefix)
-        else:
+        elif section_name in BUILTIN_RESOURCE_SECTIONS:
+            # Built-in Python-based sections (prompts, proxies, tactics)
             _discover_python_modules(path, runtime, namespace, section_name,
                                      resource_type, prefix)
+        else:
+            # Custom section: discover all files (lazy), PLUS any .py modules
+            _discover_files(path, runtime, namespace, resource_type, prefix)
+            _discover_python_modules(path, runtime, namespace, section_name,
+                                     resource_type, prefix)
+
+
+# ---------------------------------------------------------------------------
+# Generic file discovery (custom sections — images, models, JSON, etc.)
+# ---------------------------------------------------------------------------
+
+# Files that are already handled by _discover_python_modules or should be skipped
+_SKIP_EXTENSIONS = {".py", ".pyc", ".pyo"}
+
+# Known structured formats that get a typed loader instead of raw bytes
+_STRUCTURED_LOADERS = {
+    ".json": "_json",
+    ".yaml": "_yaml",
+    ".yml": "_yaml",
+    ".toml": "_toml",
+}
+
+
+def _load_json(p: Path):
+    import json
+    with p.open() as f:
+        return json.load(f)
+
+def _load_yaml(p: Path):
+    import yaml
+    with p.open() as f:
+        return yaml.safe_load(f)
+
+def _load_toml(p: Path):
+    import tomllib
+    with p.open("rb") as f:
+        return tomllib.load(f)
+
+_LOADER_FUNCS = {
+    "_json": _load_json,
+    "_yaml": _load_yaml,
+    "_toml": _load_toml,
+}
+
+
+def _discover_files(
+    root: Path,
+    runtime: Runtime,
+    namespace: str,
+    resource_type: str,
+    prefix: str,
+) -> None:
+    """Discover arbitrary files and register them as lazy ``ResourceNode``s.
+
+    Used for custom sections (``[assets]``, ``[models]``, etc.).
+
+    Loader behavior by extension:
+        - ``.json`` → parsed as dict/list via ``json.load``
+        - ``.yaml`` / ``.yml`` → parsed via ``yaml.safe_load``
+        - ``.toml`` → parsed via ``tomllib.load``
+        - Everything else → loaded as raw ``bytes``
+
+    The key **includes the file extension** (unlike Python-based discovery
+    where ``.py`` is stripped), because the extension is part of the file
+    identity — ``logo.png`` and ``logo.svg`` are different resources.
+
+    Each node also stores the absolute file path in
+    ``metadata["file_path"]`` so users can load the file differently if
+    the default loader doesn't suit their needs::
+
+        node = runtime.get_node("my_pkg.assets:models/classifier.pt")
+        path = node.metadata["file_path"]   # use your own loader
+    """
+    for f in sorted(root.rglob("*")):
+        if not f.is_file():
+            continue
+        if f.suffix in _SKIP_EXTENSIONS:
+            continue
+        if f.name.startswith("_") or f.name.startswith("."):
+            continue
+        if "__pycache__" in f.parts:
+            continue
+
+        relative = str(f.relative_to(root)).replace(os.sep, "/")
+        key = f"{prefix}/{relative}".strip("/")
+        file_path = f  # capture for closure
+        abs_path = str(f.resolve())
+
+        # Pick the right loader
+        ext = f.suffix.lower()
+        if ext in _STRUCTURED_LOADERS:
+            loader_key = _STRUCTURED_LOADERS[ext]
+            loader_func = _LOADER_FUNCS[loader_key]
+            def _loader(p=file_path, load=loader_func):
+                return load(p)
+        else:
+            def _loader(p=file_path):
+                return p.read_bytes()
+
+        node = ResourceNode.lazy(
+            key, _loader,
+            namespace=namespace,
+            resource_type=resource_type,
+            file_path=abs_path,
+        )
+        try:
+            runtime.register(node, overwrite=True)
+        except Exception as exc:
+            logger.warning("Failed to register file '%s': %s", key, exc)
 
 
 # ---------------------------------------------------------------------------
@@ -526,6 +636,59 @@ def resolve_config(
 
     parent = resolve_config(base_name, runtime, _visited=_visited)
     return _deep_merge(parent, config)
+
+
+def vendor_config(
+    source: str,
+    overrides: Optional[Dict[str, Any]] = None,
+    *,
+    runtime: Optional[Runtime] = None,
+) -> Dict[str, Any]:
+    """Resolve a dependency's config and optionally apply overrides.
+
+    Use this to "vendor" a dependency's config into your own package —
+    materializing it into a self-contained dict with your overrides
+    applied on top.
+
+    Parameters
+    ----------
+    source:
+        Config name to resolve, e.g. ``"A:default"`` or ``"default"``.
+    overrides:
+        Optional dict of overrides to deep-merge on top of the resolved
+        config.  Dict values merge recursively (so you can override a
+        single ``model_args`` key without losing the rest).
+    runtime:
+        The runtime to look up configs from.
+
+    Returns
+    -------
+    A fully materialized dict (no ``base`` key) with overrides applied.
+
+    Example
+    -------
+    ::
+
+        # Pull package A's config and pin model choice
+        cfg = vendor_config("A:default", {
+            "global": {
+                "model_name": "gpt-4o",
+                "model_args": {"temperature": 0.05},
+            },
+        })
+
+        # Register as your own config
+        runtime.register_config("vendor/A", cfg, namespace="my_pkg.configs")
+
+        # Or save to disk
+        import yaml
+        with open("configs/vendor/A.yaml", "w") as f:
+            yaml.dump(cfg, f)
+    """
+    config = resolve_config(source, runtime)
+    if overrides:
+        config = _deep_merge(config, overrides)
+    return config
 
 
 # ---------------------------------------------------------------------------
