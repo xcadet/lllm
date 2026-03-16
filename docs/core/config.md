@@ -2,6 +2,7 @@
 
 LLLM favors composition over hard-coded imports. Auto-discovery plus lightweight YAML allows an entire system to be wired together without editing Python entry points.
 
+
 ## Configuration Files
 
 1. **`config/<system>/default.yaml`** – runtime settings consumed by agents and systems.

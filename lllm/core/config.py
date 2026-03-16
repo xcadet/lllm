@@ -16,10 +16,24 @@ import warnings
 from pathlib import Path
 from typing import Iterable, Optional, List, Dict
 import tomllib  
+from pydantic import BaseModel
 
 from lllm.core.runtime import Runtime, get_default_runtime
 
 logger = logging.getLogger(__name__)
+
+
+class Resource(BaseModel):
+    """
+    A resource under the package, such as a tactic, a prompt, a proxy, a config, etc. 
+    It can also be something in general, like an asset, a file, a folder, etc. which
+    are loaded as-is by custom __init__ method. However, as long as it is registered,
+    it can be loaded by the `load` function.
+    """
+    path: str
+    alias: Optional[str] = None
+
+
 
 # ---------------------------------------------------------------------------
 # Constants

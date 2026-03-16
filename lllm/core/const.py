@@ -76,4 +76,23 @@ class InvokeCost(BaseModel):
                 f"Cost Breakdown: Prompt: ${self.prompt_cost:.6f}, Completion: ${self.completion_cost:.6f} | "
                 f"Total Cost: ${self.cost:.6f}")
 
-
+    def __add__(self, other: 'InvokeCost') -> 'InvokeCost':
+        return InvokeCost(
+            # Token counts — additive
+            prompt_tokens=self.prompt_tokens + other.prompt_tokens,
+            completion_tokens=self.completion_tokens + other.completion_tokens,
+            total_tokens=self.total_tokens + other.total_tokens,
+            cached_prompt_tokens=self.cached_prompt_tokens + other.cached_prompt_tokens,
+            reasoning_tokens=self.reasoning_tokens + other.reasoning_tokens,
+            audio_prompt_tokens=self.audio_prompt_tokens + other.audio_prompt_tokens,
+            audio_completion_tokens=self.audio_completion_tokens + other.audio_completion_tokens,
+            # Rates — NOT additive, zero them out in aggregates
+            input_cost_per_token=0.0,
+            output_cost_per_token=0.0,
+            cache_read_input_token_cost=0.0,
+            # Dollar costs — additive
+            prompt_cost=self.prompt_cost + other.prompt_cost,
+            completion_cost=self.completion_cost + other.completion_cost,
+            cost=self.cost + other.cost,
+        )
+    

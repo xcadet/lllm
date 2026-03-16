@@ -5,11 +5,16 @@ from typing import Dict, Any, Type, Optional, TYPE_CHECKING
 if TYPE_CHECKING:
     from lllm.core.prompt import Prompt
     from lllm.proxies.base import BaseProxy
+    from lllm.core.agent import Agent
+    from lllm.core.tactic import Tactic
 
 
 class Runtime:
     """
     Holds all registries and shared state for an LLLM runtime.
+
+    The runtime is built based on the lllm.toml file, which will inform 
+    where to find the prompts, proxies, agents, and tactics.
     
     Most users never touch this directly — the module-level functions
     (register_prompt, register_proxy, etc.) operate on a default instance.
@@ -19,8 +24,9 @@ class Runtime:
 
     def __init__(self):
         self.prompts: Dict[str, Prompt] = {}
-        self.proxies: Dict[str, Type[BaseProxy]] = {}
-        self.tactics: Dict[str, Type] = {}  # Tactic subclasses
+        self.proxies: Dict[str, BaseProxy] = {}
+        self.tactics: Dict[str, Tactic] = {}  
+        self.agents: Dict[str, Agent] = {}  
         self._discovery_done: bool = False
 
     # -- Prompts --

@@ -128,6 +128,14 @@ class AgentCallSession(BaseModel):
         if log_base is not None:
             log_base.log_error(f'{self.agent_name} failed to complete the agent call')
 
+    @property
+    def cost(self) -> InvokeCost:
+        _cost = InvokeCost()
+        for invoke_trace in self.invoke_traces.values():
+            for invoke_result in invoke_trace:
+                _cost += invoke_result.cost
+        return _cost
+
 
 # ---------------------------------------------------------------------------
 # Tools

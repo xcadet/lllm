@@ -27,7 +27,7 @@ LLLM is a lightweight framework for developing **advanced agentic systems**. All
 
 ## Design Philosophy
 
-Its more designed for developers and researchers, and designed to be a tool like PyTorch or Hugging Face, to help them build their own agentic systems easily, and to allow the modules built to be shared and reused by others. 
+It's more designed for developers and researchers, and is designed to be Pythonic like PyPI/npm, PyTorch, and Hugging Face, to help them build their own agentic systems easily, and to allow the modules built to be shared and reused by others. 
 
 - **Agentic System as a Program**:  An agentic system = agents (≈ system prompt + base model, the “callers”) + prompts (the "functions" or "calls") + the tactics (the "program" that wires the callers and functions). The agent call makes LLM agents "deterministic" callers, for minimizing side effects, maximizing compositionality, and parallelizability.
 - **Dialog as Internal "Mental" State**: Dialog is the "internal mental state" of each agent due to system prompt, different bodies in a talk maintain their own internal dialog, i.e., dialog is what each agent "sees" from the others, its objective, not subjective. Dialog is also a function stack for each agent, where top_prompt is the calling convention for the next turn.
@@ -38,28 +38,9 @@ Its more designed for developers and researchers, and designed to be a tool like
 - **Tactics as Shared Library**: Tactics are the reusable library for different agentic systems, ideally you can "import" a tactic from a library, and use it in your own agentic system. Each prompt, proxy, config, and tactic is a "independent" module, and they are loaded on demand through the lllm.toml file. Theoretically, you can share your tactics, prompts, proxies, configs, etc. with others, and they can use them in their own agentic systems.
 - **Replayable Logging**: The logging system is designed to be replayable, which means you can replay the logging to get the exact same result as the original run, and save the entire traces and costs, etc. This is useful for debugging, A/B testing, prompt optimization, etc.
 
-
-## Typical Project Structure
-
-The agentic system in LLLM is declarative, where `AgenticSystem = Agents + Prompts + Tactics`.
-
-```
-lllm/
-├── lllm.toml       # to help LLLM find the prompts, proxies, configs, and tactics folders
-├── prompts/        # the prompts, for the agents to call, i.e., the functions or "calls"
-├── proxies/        # the proxies, for proxy-based tool-calling, mini in-dialog interpreter
-├── configs/        # the configs for the agents, i.e., the base models, system prompts, etc. and your own configs 
-├── tactics/        # the tactics, which are the programs that wire the agents and prompts together
-├── system.py       # a conceptual top-level encapsulation of the agentic system(s)
-├── ... (other files and folders)
-└── README.md
-```
-
-You can also structure your project in a more flexible way, like you can put the prompts, proxies, configs, and tactics in another place, that can be shared by multiple projects, to support multiple of your agentic systems, or you can put them in the same place, and you write multiple agentic systems in the same project.
-
-Conceptually, LLLM maintains a huge registry of prompts, proxies, configs, and tactics, either local or shared, which are loaded on demand through the lllm.toml file. When you are building an agentic system, you usually use tactics as the building blocks or modules, and use them to compose your own agentic system. It works in this way, the tactic find agent configs for keys in `agent_group`, and finds prompts including system prompts from prompt registry. Then the proxy-based tool-calling is through the proxy registry. 
-
 The LLLM stops at tactic as its highest level of abstraction, i.e., low-level, for the higher levels, like the system itself, the system of systems, and the network of systems, etc., please refer to the [Simple System of Systems Network (SSSN) framework](https://github.com/Productive-Superintelligence/sssn) for more details.
+
+
 
 ## Installation
 
@@ -117,6 +98,7 @@ pytest tests/
 
 - **Computer Use Agent (CUA)** – `lllm.tools.cua` offers browser automation via Playwright and the OpenAI Computer Use API. It is still evolving and may change without notice.
 - **Responses API Routing** – opt into OpenAI’s Responses API by setting `api_type = "response"` per agent. This enables native web search/computer-use tools but currently targets OpenAI only.
+- **Skills (WIP)** – For defining more complex base agents.
 
 
 # Roadmap
@@ -138,15 +120,20 @@ pytest tests/
 - [x] Refactor message and dialog model/state management, better arg passing (dialog.py)
   - Dialog provides low-level operations, and advanced arg passings are provided by Agent etc. below
 - [x] Refactor agent model, agent call (agent.py)
-- [ ] -> Refactor tactics and config system (tactics.py, config.py, lllm.toml)
-- [ ] Proxy-based tool-calling, mini in-dialog interpreter (proxies/)
+- [x] Refactor tactics (tactics.py)
+- [ ] -> Refactor config and package system (config.py, lllm.toml)
 - [ ] Logger (cli logging), replayable logging system (log.py)
+- [ ] Fast mode, 5-line code to build a simple system.
+
 
 ## TODOs
 
+- [ ] Proxy-based tool-calling, mini in-dialog interpreter (proxies/)
+- [ ] Support skills in agent config, see https://agentskills.io
 - [ ] Default Context Manager for prune over-size dialogs
 = [ ] Better sandbox, e.g., browser sandbox, code sandbox, etc. maybe use sandbox wheels (sandbox/)
 - [ ] Shareable Tactics, Prompts, Proxies, Configs, etc.
+
 
 ## Future Roadmap
 

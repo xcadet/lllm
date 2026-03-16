@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
-from lllm.core.const import APITypes
+from lllm.core.const import APITypes, InvokeCost
 from lllm.core.dialog import Dialog, Message
 
 
@@ -25,6 +25,10 @@ class InvokeResult:
     @property
     def has_errors(self) -> bool:
         return len(self.execution_errors) > 0
+
+    @property
+    def cost(self) -> InvokeCost:
+        return self.message.cost if self.message else InvokeCost()
 
     @property
     def error_message(self) -> str:
