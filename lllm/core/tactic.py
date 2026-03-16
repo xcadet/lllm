@@ -2,18 +2,16 @@
 Tactics — the top-level abstraction in LLLM.
 
 A Tactic is a local, functional unit of agentic behavior that defines HOW
-a group of agents solve a task.  It is the "program" that wires callers
-(agents) to functions (prompts).
+a group of agents solve a task — the "program" that wires callers (agents)
+to functions (prompts).
 
 Core capabilities:
     1. Agent initialization from declarative config (agent_group → AgentSpec → Agent).
     2. Standardized I/O — ``call()`` accepts and returns ``str | BaseModel``.
     3. Sub-tactic composition — nest tactics like ``nn.Module`` child modules.
-    4. Transparent session tracking — all ``agent.respond()`` calls are
-       automatically recorded via ``_TrackedAgent`` proxy.
-    5. Per-call agent isolation — each execution gets fresh agents, making
-       concurrent calls thread-safe.
-    6. Sync batch / async / concurrent execution via thread pool (I/O-bound).
+    4. Transparent session tracking via ``_TrackedAgent`` proxy.
+    5. Per-call agent isolation — concurrent calls are thread-safe.
+    6. Sync batch / async / concurrent execution via thread pool.
     7. Quick constructor — single-agent usage without config or discovery.
 """
 
@@ -44,7 +42,6 @@ from lllm.core.agent import Agent, AgentCallSession
 from lllm.core.prompt import Prompt, InvokeCost
 from lllm.core.dialog import Message
 from lllm.core.runtime import Runtime, get_default_runtime
-from lllm.core.config import auto_discover_if_enabled
 from lllm.core.const import APITypes
 from lllm.core.log import build_log_base
 from lllm.invokers import build_invoker
@@ -57,6 +54,15 @@ logger = logging.getLogger(__name__)
 # AgentSpec — config → agent intermediate representation
 # ---------------------------------------------------------------------------
 
+# Keys extracted from the per-agent dict into dedicated AgentSpec fields.
+# Everything else in the dict goes into model_args.
+_KNOWN_AGENT_KEYS = frozenset({
+    "name", "model_name", "system_prompt", "system_prompt_path",
+    "api_type", "model_args",
+    "max_exception_retry", "max_interrupt_steps", "max_llm_recall",
+    "extra_settings",
+})
+
 
 @dataclass
 class AgentSpec:
@@ -65,50 +71,194 @@ class AgentSpec:
 
     Intermediate representation between raw YAML and live Agent instances.
     Config parsing fails here with clear errors; Agent construction is trivial.
+
+    Config format (per-agent, after global merge)::
+
+        name: analyzer
+        model_name: gpt-4o
+        system_prompt_path: analytica/analyzer_system   # OR
+        system_prompt: "You are an analyst. ..."          # inline
+        api_type: completion
+        model_args:
+            temperature: 0.1
+            max_completion_tokens: 20000
+        max_exception_retry: 3
+        max_interrupt_steps: 5
+        max_llm_recall: 0
+        extra_settings: {}
     """
 
     name: str
     model: str
-    system_prompt_path: str
+    system_prompt_path: Optional[str] = None
+    system_prompt: Optional[Prompt] = None
     api_type: APITypes = APITypes.COMPLETION
     model_args: Dict[str, Any] = field(default_factory=dict)
+    max_exception_retry: int = 3
+    max_interrupt_steps: int = 5
+    max_llm_recall: int = 0
+    extra_settings: Dict[str, Any] = field(default_factory=dict)
 
     @classmethod
     def from_config(cls, name: str, raw: Dict[str, Any]) -> AgentSpec:
+        """Parse a single agent config dict into an AgentSpec.
+
+        *raw* is the per-agent dict **after** global defaults have been
+        merged in.  Known keys are extracted; unknown keys are treated
+        as additional model_args.
+        """
         raw = raw.copy()
+
+        # -- required fields -----------------------------------------------
         model = raw.pop("model_name", None)
         if model is None:
             raise ValueError(f"Agent '{name}' missing required 'model_name'")
+
+        # System prompt: either inline string or a registry path (at least one)
+        inline_prompt_str = raw.pop("system_prompt", None)
         system_prompt_path = raw.pop("system_prompt_path", None)
-        if system_prompt_path is None:
+        if inline_prompt_str is None and system_prompt_path is None:
             raise ValueError(
-                f"Agent '{name}' missing required 'system_prompt_path'"
+                f"Agent '{name}' needs either 'system_prompt' or "
+                f"'system_prompt_path'"
             )
+
+        # Build a Prompt object from inline string if provided
+        system_prompt = None
+        if inline_prompt_str is not None:
+            system_prompt = Prompt(
+                path=f"_inline/{name}/system",
+                prompt=inline_prompt_str,
+            )
+
+        # -- optional typed fields -----------------------------------------
         api_type_raw = raw.pop("api_type", APITypes.COMPLETION.value)
         api_type = (
             api_type_raw
             if isinstance(api_type_raw, APITypes)
             else APITypes(api_type_raw)
         )
+
+        max_exception_retry = raw.pop("max_exception_retry", 3)
+        max_interrupt_steps = raw.pop("max_interrupt_steps", 5)
+        max_llm_recall = raw.pop("max_llm_recall", 0)
+        extra_settings = raw.pop("extra_settings", {})
+
+        # -- model_args: explicit dict + any remaining unknown keys --------
+        model_args = raw.pop("model_args", {})
+        # Pop the name key (already used as the function argument)
+        raw.pop("name", None)
+        # Anything left in raw is treated as additional model_args
+        model_args.update(raw)
+
         return cls(
             name=name,
             model=model,
             system_prompt_path=system_prompt_path,
+            system_prompt=system_prompt,
             api_type=api_type,
-            model_args=raw,
+            model_args=model_args,
+            max_exception_retry=max_exception_retry,
+            max_interrupt_steps=max_interrupt_steps,
+            max_llm_recall=max_llm_recall,
+            extra_settings=extra_settings,
         )
 
-    def build(self, runtime: Runtime, invoker, log_base=None, **defaults) -> Agent:
+    def build(self, runtime: Runtime, invoker, log_base=None) -> Agent:
+        """Construct a live Agent from this spec.
+
+        If the spec has an inline ``system_prompt``, uses it directly.
+        Otherwise resolves ``system_prompt_path`` from the runtime registry.
+        """
+        if self.system_prompt is not None:
+            prompt = self.system_prompt
+        else:
+            prompt = runtime.get_prompt(self.system_prompt_path)
+
         return Agent(
             name=self.name,
-            system_prompt=runtime.get_prompt(self.system_prompt_path),
+            system_prompt=prompt,
             model=self.model,
             llm_invoker=invoker,
             api_type=self.api_type,
             model_args=self.model_args,
             log_base=log_base,
-            **defaults,
+            max_exception_retry=self.max_exception_retry,
+            max_interrupt_steps=self.max_interrupt_steps,
+            max_llm_recall=self.max_llm_recall,
         )
+
+
+# ---------------------------------------------------------------------------
+# Config parsing helpers
+# ---------------------------------------------------------------------------
+
+def _merge_global_into_agent(
+    global_cfg: Dict[str, Any],
+    agent_cfg: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Merge global defaults into an agent config.
+
+    Agent-level keys override global keys.  ``model_args`` dicts are
+    merged (not replaced), so you can set ``temperature`` globally and
+    override ``max_tokens`` per agent.
+    """
+    from lllm.core.config import _deep_merge
+    return _deep_merge(global_cfg, agent_cfg)
+
+
+def parse_agent_configs(
+    config: Dict[str, Any],
+    agent_group: List[str],
+    tactic_name: str,
+) -> Dict[str, AgentSpec]:
+    """Parse the ``global`` + ``agent_configs`` sections of a config dict.
+
+    Parameters
+    ----------
+    config:
+        The fully resolved tactic config dict (after ``base`` inheritance).
+    agent_group:
+        The agent names this tactic requires.
+    tactic_name:
+        For error messages.
+
+    Returns
+    -------
+    ``{agent_name: AgentSpec}`` for each name in *agent_group*.
+    """
+    global_cfg = config.get("global", {})
+    raw_list = config.get("agent_configs", [])
+
+    # Build a name → merged-config lookup
+    agent_by_name: Dict[str, Dict[str, Any]] = {}
+    for entry in raw_list:
+        if not isinstance(entry, dict):
+            raise TypeError(
+                f"Each entry in agent_configs must be a dict, got {type(entry).__name__}"
+            )
+        name = entry.get("name")
+        if name is None:
+            raise ValueError(
+                f"Agent config entry missing 'name' key: {entry}"
+            )
+        merged = _merge_global_into_agent(global_cfg, entry)
+        agent_by_name[name] = merged
+
+    # Validate that all required agents are present
+    specs: Dict[str, AgentSpec] = {}
+    for agent_name in agent_group:
+        if agent_name not in agent_by_name:
+            raise ValueError(
+                f"Agent '{agent_name}' required by tactic '{tactic_name}' "
+                f"not found in agent_configs. "
+                f"Available: {sorted(agent_by_name.keys())}"
+            )
+        specs[agent_name] = AgentSpec.from_config(
+            agent_name, agent_by_name[agent_name]
+        )
+
+    return specs
 
 
 # ---------------------------------------------------------------------------
@@ -121,13 +271,7 @@ class _TrackedAgent:
     Thin proxy around Agent that intercepts ``respond()`` to record
     the ``AgentCallSession`` into the tactic's session.
 
-    All other Agent methods (``open``, ``receive``, ``switch``, ``fork``,
-    ``close``, etc.) delegate transparently via ``__getattr__``.
-
-    The developer writes normal Agent API code — tracking is invisible::
-
-        self.agents["analyzer"].open("work", prompt_args={...})
-        result = self.agents["analyzer"].respond()  # auto-recorded
+    All other Agent methods delegate transparently via ``__getattr__``.
     """
 
     __slots__ = ("_agent", "_session", "_name")
@@ -145,7 +289,6 @@ class _TrackedAgent:
         parser_args: Optional[Dict[str, Any]] = None,
         return_session: bool = False,
     ) -> Union[Message, AgentCallSession]:
-        """Intercept respond() to record into tactic session, then return normally."""
         agent_session = self._agent.respond(
             alias=alias,
             metadata=metadata,
@@ -173,7 +316,7 @@ class _TrackedAgent:
 
 
 # ---------------------------------------------------------------------------
-# TacticCallSession — per-call diagnostics (mirrors AgentCallSession)
+# TacticCallSession — per-call diagnostics
 # ---------------------------------------------------------------------------
 
 
@@ -182,43 +325,26 @@ class TacticCallSession(BaseModel):
     Tracks one invocation of a tactic — every agent call, every sub-tactic
     call, total cost, and the final result.
 
-    Forms a tree mirroring the tactic composition: each sub-tactic call
-    produces its own nested ``TacticCallSession``.
-
     The tactic is stateless; all per-call data lives here.
     """
 
     tactic_name: str
-    state: str = "initial"  # "initial" | "running" | "success" | "failure"
+    state: str = "initial"
 
-    # Per-agent tracking
-    agent_sessions: Dict[str, List[AgentCallSession]] = Field(
-        default_factory=dict
-    )
+    agent_sessions: Dict[str, List[AgentCallSession]] = Field(default_factory=dict)
+    sub_tactic_sessions: Dict[str, List["TacticCallSession"]] = Field(default_factory=dict)
 
-    # Per-sub-tactic tracking
-    sub_tactic_sessions: Dict[str, List["TacticCallSession"]] = Field(
-        default_factory=dict
-    )
-
-    # Result and error
     delivery: Optional[Any] = None
     error: Optional[str] = None
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
-    # -- Recording --------------------------------------------------------
-
-    def record_agent_call(
-        self, agent_name: str, session: AgentCallSession
-    ) -> None:
+    def record_agent_call(self, agent_name: str, session: AgentCallSession) -> None:
         if agent_name not in self.agent_sessions:
             self.agent_sessions[agent_name] = []
         self.agent_sessions[agent_name].append(session)
 
-    def record_sub_tactic_call(
-        self, tactic_name: str, session: "TacticCallSession"
-    ) -> None:
+    def record_sub_tactic_call(self, tactic_name: str, session: "TacticCallSession") -> None:
         if tactic_name not in self.sub_tactic_sessions:
             self.sub_tactic_sessions[tactic_name] = []
         self.sub_tactic_sessions[tactic_name].append(session)
@@ -231,8 +357,6 @@ class TacticCallSession(BaseModel):
         self.state = "failure"
         if error is not None:
             self.error = f"{type(error).__name__}: {error}"
-
-    # -- Cost aggregation -------------------------------------------------
 
     @property
     def agent_cost(self) -> InvokeCost:
@@ -276,11 +400,8 @@ class TacticCallSession(BaseModel):
 # Registration helpers
 # ---------------------------------------------------------------------------
 
-
 def _normalize_name(name: Any) -> str:
-    if isinstance(name, Enum) or (
-        isinstance(name, type) and issubclass(name, Enum)
-    ):
+    if isinstance(name, Enum) or (isinstance(name, type) and issubclass(name, Enum)):
         return name.value
     elif isinstance(name, str):
         return name
@@ -289,30 +410,21 @@ def _normalize_name(name: Any) -> str:
 
 
 def register_tactic_class(
-    tactic_cls: Type["Tactic"], runtime: Runtime = None
+    tactic_cls: Type["Tactic"],
+    runtime: Runtime = None,
 ) -> Type["Tactic"]:
     runtime = runtime or get_default_runtime()
     name = _normalize_name(getattr(tactic_cls, "name", None))
     assert name not in (None, ""), (
         f"Tactic class {tactic_cls.__name__} must define `name`"
     )
-    if name in runtime.tactics and runtime.tactics[name] is not tactic_cls:
-        raise ValueError(
-            f"Tactic '{name}' already registered "
-            f"with {runtime.tactics[name].__name__}"
-        )
-    runtime.register_tactic(name, tactic_cls)
+    runtime.register_tactic(name, tactic_cls, overwrite=True)
     return tactic_cls
 
 
 def get_tactic_class(name: str, runtime: Runtime = None) -> Type["Tactic"]:
     runtime = runtime or get_default_runtime()
-    if name not in runtime.tactics:
-        raise KeyError(
-            f"Tactic '{name}' not found. "
-            f"Registered: {list(runtime.tactics.keys())}"
-        )
-    return runtime.tactics[name]
+    return runtime.get_tactic(name)
 
 
 def build_tactic(
@@ -323,6 +435,12 @@ def build_tactic(
     runtime: Runtime = None,
     **kwargs,
 ) -> "Tactic":
+    """Build a Tactic from a config dict.
+
+    If *name* is not provided, reads ``config["tactic_type"]``.
+    If the config has a ``base`` key, it should already be resolved
+    before calling this (use ``resolve_config`` first).
+    """
     if name is None:
         name = config.get("tactic_type")
     name = _normalize_name(name)
@@ -339,40 +457,26 @@ class Tactic(ABC):
     """
     A Tactic is a local, functional unit of agentic behavior.
 
-    It defines HOW a group of agents solve a task — the "program" that wires
-    callers (agents) to functions (prompts).
+    It defines HOW a group of agents solve a task — the "program" that
+    wires callers (agents) to functions (prompts).
 
-    **Stateless by design:**  Each ``__call__`` creates a shallow copy of the
-    tactic with fresh agents and a fresh session.  ``call()`` runs on the copy,
-    so concurrent invocations never share mutable state.
+    **Config format** (the dict passed to ``__init__``)::
 
-    **Transparent tracking:**  Agents are wrapped in ``_TrackedAgent`` proxies
-    that intercept ``respond()`` and record every ``AgentCallSession`` into
-    the tactic's ``TacticCallSession``.  The developer writes normal Agent
-    API code — tracking is invisible.
+        tactic_type: analytica
+        global:
+            model_name: gpt-4o
+            model_args:
+                temperature: 0.1
+        agent_configs:
+            - name: analyzer
+              system_prompt_path: analytica/analyzer_system
+              model_args:
+                  max_completion_tokens: 20000
+            - name: synthesizer
+              system_prompt_path: analytica/synthesizer_system
 
-    **Concurrency and Batch:**  ``acall()``, ``bcall()``, and ``ccall()`` use a thread
-    pool because LLM calls are I/O-bound (GIL released during network waits).
-
-    I/O contract:
-        ``call()`` accepts ``str | BaseModel`` and returns ``str | BaseModel``.
-        Subclasses narrow these types for their specific interface.
-
-    Example::
-
-        class Analytica(Tactic):
-            name = "analytica"
-            agent_group = ["analyzer", "synthesizer"]
-
-            def call(self, task: str, **kwargs) -> str:
-                analyzer = self.agents["analyzer"]
-                synthesizer = self.agents["synthesizer"]
-
-                analyzer.open("work", prompt_args={"task": task})
-                analysis = analyzer.respond()  # auto-tracked
-
-                synthesizer.open("work", prompt_args={"analysis": analysis.content})
-                return synthesizer.respond().content  # auto-tracked
+    ``global`` provides defaults merged into each agent config.
+    ``agent_configs`` is a list; each entry must have a ``name``.
     """
 
     name: str = None
@@ -380,12 +484,7 @@ class Tactic(ABC):
 
     # -- Auto-registration ------------------------------------------------
 
-    def __init_subclass__(
-        cls,
-        register: bool = True,
-        runtime: Optional[Runtime] = None,
-        **kwargs,
-    ):
+    def __init_subclass__(cls, register: bool = True, runtime: Optional[Runtime] = None, **kwargs):
         super().__init_subclass__(**kwargs)
         if register and getattr(cls, "name", None):
             register_tactic_class(cls, runtime=runtime or get_default_runtime())
@@ -402,10 +501,6 @@ class Tactic(ABC):
         self._runtime = runtime or get_default_runtime()
         self._sub_tactics: Dict[str, Tactic] = {}
 
-        auto_discover_if_enabled(
-            config.get("auto_discover"), runtime=self._runtime
-        )
-
         self.config = config
         self.ckpt_dir = ckpt_dir
         self._stream = stream or U.PrintSystem()
@@ -414,27 +509,17 @@ class Tactic(ABC):
         self._log_base = build_log_base(config)
         self.llm_invoker = build_invoker(config)
 
-        # Parse agent specs — agents are built per-call, not here
+        # Parse agent specs from the new config format
         assert self.agent_group is not None, (
             f"agent_group not set for tactic '{self.name}'"
         )
-        raw_configs = config.get("agent_group_configs", {})
-        self._agent_specs: Dict[str, AgentSpec] = {}
-        for agent_name in self.agent_group:
-            if agent_name not in raw_configs:
-                raise ValueError(
-                    f"Agent '{agent_name}' in agent_group of '{self.name}' "
-                    f"not found in agent_group_configs. "
-                    f"Available: {sorted(raw_configs.keys())}"
-                )
-            self._agent_specs[agent_name] = AgentSpec.from_config(
-                agent_name, raw_configs[agent_name]
-            )
+        self._agent_specs = parse_agent_configs(
+            config, self.agent_group, self.name
+        )
 
-        # Thread pool size for batch/concurrent execution
         self._max_workers: int = config.get("max_workers", 4)
 
-        # Per-call state — set by _execute on the copy, not used on the original
+        # Per-call state — set by _execute on the copy
         self.agents: Dict[str, Union[Agent, _TrackedAgent]] = {}
         self._session: Optional[TacticCallSession] = None
 
@@ -453,21 +538,8 @@ class Tactic(ABC):
     # -- Fresh agent creation (per-call) ----------------------------------
 
     def _create_fresh_agents(self) -> Dict[str, Agent]:
-        """
-        Build fresh agents from specs.
-
-        Shares expensive objects (invoker, runtime, prompts).
-        Only the mutable Agent shell (with empty _dialogs) is new.
-        """
-        defaults = dict(
-            max_exception_retry=self.config.get("max_exception_retry", 3),
-            max_interrupt_steps=self.config.get("max_interrupt_steps", 5),
-            max_llm_recall=self.config.get("max_llm_recall", 3),
-        )
         return {
-            agent_name: spec.build(
-                self._runtime, self.llm_invoker, self._log_base, **defaults
-            )
+            agent_name: spec.build(self._runtime, self.llm_invoker, self._log_base)
             for agent_name, spec in self._agent_specs.items()
         }
 
@@ -475,14 +547,7 @@ class Tactic(ABC):
 
     @abstractmethod
     def call(self, task: Union[str, BaseModel], **kwargs) -> Union[str, BaseModel]:
-        """
-        Override in subclasses.
-
-        ``self.agents`` contains fresh, tracked agents for this call.
-        Every ``agent.respond()`` is automatically recorded into the
-        tactic's session — no manual tracking needed.
-        """
-        pass # user-defined call method
+        pass
 
     def _execute(
         self,
@@ -491,11 +556,6 @@ class Tactic(ABC):
         return_session: bool = False,
         **kwargs,
     ) -> Union[str, BaseModel, TacticCallSession]:
-        """
-        Create an isolated copy with fresh agents, run call(), capture session.
-
-        Thread-safe: each invocation operates on its own shallow copy.
-        """
         if session_name is None:
             task_str = task if isinstance(task, str) else task.model_dump_json()
             task_hash = hashlib.md5(task_str.encode()).hexdigest()[:8]
@@ -504,18 +564,16 @@ class Tactic(ABC):
                 f"_{dt.datetime.now().strftime('%Y%m%d_%H%M%S')}"
             )
 
-        # Shallow copy shares immutable state (config, runtime, invoker, specs)
         ctx = copy.copy(self)
-        ctx._sub_tactics = dict(self._sub_tactics)  # isolate sub-tactic dict
+        ctx._sub_tactics = dict(self._sub_tactics)
         session = TacticCallSession(tactic_name=self.name)
         session.state = "running"
         ctx._session = session
 
-        # Fresh agents wrapped in tracking proxies
         raw_agents = ctx._create_fresh_agents()
         ctx.agents = {
-            agent_name: _TrackedAgent(agent, session, agent_name)
-            for agent_name, agent in raw_agents.items()
+            n: _TrackedAgent(agent, session, n)
+            for n, agent in raw_agents.items()
         }
 
         ctx.set_st(session_name)
@@ -528,121 +586,38 @@ class Tactic(ABC):
         finally:
             ctx.restore_st()
 
-        if return_session:
-            return session
-        return result
+        return session if return_session else result
 
-    def __call__(
-        self,
-        task: Union[str, BaseModel],
-        session_name: str = None,
-        return_session: bool = False,
-        **kwargs,
-    ) -> Union[str, BaseModel, TacticCallSession]:
-        """
-        Execute with per-call isolation and transparent session tracking.
-
-        Args:
-            task: Input (``str`` or typed ``BaseModel``).
-            session_name: Optional name for logging.
-            return_session: If True, return ``TacticCallSession``
-                (result at ``session.delivery``).
-            **kwargs: Passed to ``call()``.
-        """
+    def __call__(self, task, session_name=None, return_session=False, **kwargs):
         return self._execute(task, session_name, return_session, **kwargs)
 
-    async def acall(
-        self,
-        task: Union[str, BaseModel],
-        return_session: bool = False,
-        **kwargs,
-    ) -> Union[str, BaseModel, TacticCallSession]:
-        """
-        Async single-task execution.
-
-        Runs ``_execute`` in the default thread executor so it doesn't
-        block the event loop.
-        """
+    async def acall(self, task, return_session=False, **kwargs):
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
-            None,
-            lambda: self._execute(
-                task, return_session=return_session, **kwargs
-            ),
+            None, lambda: self._execute(task, return_session=return_session, **kwargs),
         )
 
-    def bcall(
-        self,
-        tasks: List[Union[str, BaseModel]],
-        return_sessions: bool = False,
-        max_workers: int = None,
-        **kwargs,
-    ) -> List[Union[str, BaseModel, TacticCallSession]]:
-        """
-        Run multiple tasks concurrently using threads. Returns results in order.
-
-        Thread-safe: each task gets its own fresh agents via ``_execute``.
-        Uses threads because LLM API calls are I/O-bound.
-
-        Args:
-            tasks: List of inputs.
-            return_sessions: If True, return ``TacticCallSession`` per task.
-            max_workers: Max concurrent threads (default: config ``max_workers``).
-            **kwargs: Passed to ``call()`` for every task.
-        """
+    def bcall(self, tasks, return_sessions=False, max_workers=None, **kwargs):
         workers = max_workers or self._max_workers
         with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
             futures = [
-                pool.submit(
-                    self._execute, task, None, return_sessions, **kwargs
-                )
-                for task in tasks
+                pool.submit(self._execute, t, None, return_sessions, **kwargs)
+                for t in tasks
             ]
             return [f.result() for f in futures]
 
-    async def ccall(
-        self,
-        tasks: List[Union[str, BaseModel]],
-        return_sessions: bool = False,
-        max_workers: int = None,
-        **kwargs,
-    ) -> AsyncGenerator[
-        Tuple[int, Union[str, BaseModel, TacticCallSession]], None
-    ]:
-        """
-        Concurrent execution — yield ``(index, result)`` as tasks complete.
-
-        Unlike ``bcall``, results arrive fastest-first.  The index matches
-        the position in the input list.
-
-        Usage::
-
-            async for idx, result in tactic.ccall(tasks):
-                print(f"Task {idx}: {result}")
-        """
+    async def ccall(self, tasks, return_sessions=False, max_workers=None, **kwargs):
         workers = max_workers or self._max_workers
         loop = asyncio.get_running_loop()
-
         with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
-            # Wrap each task to carry its index through the executor
-            def _run_indexed(
-                idx: int, t: Union[str, BaseModel]
-            ) -> Tuple[int, Any]:
-                result = self._execute(
-                    t, return_session=return_sessions, **kwargs
-                )
-                return idx, result
-
-            futures = [
-                loop.run_in_executor(pool, _run_indexed, idx, task)
-                for idx, task in enumerate(tasks)
-            ]
-
+            def _run(idx, t):
+                return idx, self._execute(t, return_session=return_sessions, **kwargs)
+            futures = [loop.run_in_executor(pool, _run, i, t) for i, t in enumerate(tasks)]
             for coro in asyncio.as_completed(futures):
                 idx, result = await coro
                 yield idx, result
 
-    # -- Session management (WIP: refactor with logging system) -----------
+    # -- Session helpers --------------------------------------------------
 
     def set_st(self, session_name: str) -> None:
         self.st = U.StreamWrapper(self._stream, self._log_base, session_name)
@@ -659,20 +634,7 @@ class Tactic(ABC):
     # -- Quick constructor ------------------------------------------------
 
     @classmethod
-    def quick(
-        cls,
-        system_prompt: Union[str, Prompt],
-        model: str = "gpt-4o",
-        **model_args,
-    ) -> Agent:
-        """
-        Create a single agent without config or discovery::
-
-            agent = Tactic.quick("You are a helpful assistant.")
-            agent.open("chat")
-            agent.receive("Hello!")
-            print(agent.respond().content)
-        """
+    def quick(cls, system_prompt: Union[str, Prompt], model: str = "gpt-4o", **model_args) -> Agent:
         if isinstance(system_prompt, str):
             prompt = Prompt(path="_quick/system", prompt=system_prompt)
         else:
@@ -685,8 +647,6 @@ class Tactic(ABC):
             llm_invoker=invoker,
             model_args=model_args,
         )
-
-    # -- Representation ---------------------------------------------------
 
     def __repr__(self) -> str:
         parts = [f"Tactic(name={self.name!r}"]

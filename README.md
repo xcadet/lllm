@@ -122,7 +122,7 @@ pytest tests/
 - [x] Refactor agent model, agent call (agent.py)
 - [x] Refactor tactics (tactic.py)
 - [ ] -> Refactor config and package system (config.py, lllm.toml)
-- [ ] Logger (cli logging), replayable logging system (log.py)
+- [ ] Logger (cli logging), replayable logging system, and printing system (log.py, utils.py)
 - [ ] Fast mode, 5-line code to build a simple system.
 
 

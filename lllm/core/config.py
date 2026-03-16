@@ -1,9 +1,10 @@
+# lllm/core/config.py
 """
-Auto-discovery of prompts and proxies from folders declared in ``lllm.toml``.
+Package loading and resource discovery.
 
-Every public function accepts an optional *runtime* parameter.  When omitted
-the module falls back to :func:`~lllm.core.runtime.get_default_runtime`, so
-callers that don't care about isolation never have to think about it.
+Entry point: :func:`load_package` — reads ``lllm.toml``, parses
+``[package]``, ``[dependencies]``, and all resource sections, then
+recursively loads the dependency tree into a :class:`Runtime`.
 """
 from __future__ import annotations
 
@@ -13,80 +14,121 @@ import inspect
 import logging
 import types
 import warnings
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterable, Optional, List, Dict
-import tomllib  
-from pydantic import BaseModel
+from typing import Any, Iterable, Optional, List, Dict, Tuple
+import tomllib
 
 from lllm.core.runtime import Runtime, get_default_runtime
+from lllm.core.resource import ResourceNode, PackageInfo
 
 logger = logging.getLogger(__name__)
-
-
-class Resource(BaseModel):
-    """
-    A resource under the package, such as a tactic, a prompt, a proxy, a config, etc. 
-    It can also be something in general, like an asset, a file, a folder, etc. which
-    are loaded as-is by custom __init__ method. However, as long as it is registered,
-    it can be loaded by the `load` function.
-    """
-    path: str
-    alias: Optional[str] = None
-
-
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 
 IGNORED_FILES = {"__init__.py", "__pycache__"}
+
+PACKAGE_SECTION = "package"
+DEPENDENCY_SECTION = "dependencies"
 PROMPT_SECTION = "prompts"
 PROXY_SECTION = "proxies"
+CONFIG_SECTION = "configs"
+TACTIC_SECTION = "tactics"
 
-# Process-wide default; toggled via ``configure_auto_discover``.
-_DEFAULT_AUTO_DISCOVER = True
+META_SECTIONS = frozenset({PACKAGE_SECTION, DEPENDENCY_SECTION})
+BUILTIN_RESOURCE_SECTIONS = (PROMPT_SECTION, PROXY_SECTION, CONFIG_SECTION, TACTIC_SECTION)
+KNOWN_SECTIONS = META_SECTIONS | frozenset(BUILTIN_RESOURCE_SECTIONS)
 
-
+_SECTION_TO_RESOURCE_TYPE = {
+    PROMPT_SECTION: "prompt",
+    PROXY_SECTION: "proxy",
+    CONFIG_SECTION: "config",
+    TACTIC_SECTION: "tactic",
+}
 
 LLLM_CONFIG_ENV = "LLLM_CONFIG"
-LLLM_CONFIG_DISABLE_ENV = "LLLM_AUTO_DISCOVER"
 CONFIG_FILENAMES = ("lllm.toml", ".lllm.toml", "LLLM.toml")
 CONFIG_SUBDIRS = ("", "template")
 
 
 # ---------------------------------------------------------------------------
-# Config file loading
+# TOML entry parsing
 # ---------------------------------------------------------------------------
 
+@dataclass
+class ParsedPathEntry:
+    """Parsed ``[section] paths`` entry.  Supports both string and table forms:
 
-def _resolve_candidate(path: Optional[str]) -> Optional[Path]:
-    if not path:
-        return None
-    candidate = Path(path).expanduser()
-    if candidate.is_dir():
-        candidate = candidate / "lllm.toml"
-    if candidate.is_file():
-        return candidate.resolve()
-    return None
-
-
-def find_config_file(start_path: Optional[str | os.PathLike[str]] = None) -> Optional[Path]:
+        ``"./dir under vfolder"``  ⟺  ``{path = "./dir", prefix = "vfolder"}``
+        ``"./dir under vfolder"``  ⟺  ``{path = "./dir", under = "vfolder"}``
     """
-    Locate the nearest lllm.toml by checking:
-      1. The LLLM_CONFIG environment variable (file or directory)
-      2. The provided start_path and its parents
-      3. The current working directory and its parents
-    """
-    env_path = _resolve_candidate(os.environ.get(LLLM_CONFIG_ENV))
-    if env_path:
-        return env_path
+    path: str
+    prefix: Optional[str] = None
 
-    search_roots: List[Path] = []
+
+@dataclass
+class ParsedDependencyEntry:
+    """Parsed ``[dependencies] packages`` entry.  Supports both forms:
+
+        ``"./pkg as p1"``  ⟺  ``{path = "./pkg", alias = "p1"}``
+        ``"./pkg as p1"``  ⟺  ``{path = "./pkg", as = "p1"}``
+    """
+    path: str
+    alias: Optional[str] = None
+
+
+def _parse_path_entry(entry: Any) -> ParsedPathEntry:
+    if isinstance(entry, dict):
+        return ParsedPathEntry(
+            path=entry["path"],
+            prefix=entry.get("prefix") or entry.get("under"),
+        )
+    if isinstance(entry, str):
+        if " under " in entry:
+            path_part, pfx = entry.rsplit(" under ", 1)
+            return ParsedPathEntry(path=path_part.strip(), prefix=pfx.strip())
+        return ParsedPathEntry(path=entry.strip())
+    raise ValueError(f"Invalid path entry: {entry!r}")
+
+
+def _parse_dependency_entry(entry: Any) -> ParsedDependencyEntry:
+    if isinstance(entry, dict):
+        return ParsedDependencyEntry(
+            path=entry["path"],
+            alias=entry.get("alias") or entry.get("as"),
+        )
+    if isinstance(entry, str):
+        if " as " in entry:
+            path_part, alias = entry.rsplit(" as ", 1)
+            return ParsedDependencyEntry(path=path_part.strip(), alias=alias.strip())
+        return ParsedDependencyEntry(path=entry.strip())
+    raise ValueError(f"Invalid dependency entry: {entry!r}")
+
+
+# ---------------------------------------------------------------------------
+# Config file resolution
+# ---------------------------------------------------------------------------
+
+def find_config_file(
+    start_path: Optional[str | os.PathLike[str]] = None,
+) -> Optional[Path]:
+    """Locate the nearest ``lllm.toml`` by searching upward."""
+    env = os.environ.get(LLLM_CONFIG_ENV)
+    if env:
+        candidate = Path(env).expanduser()
+        if candidate.is_dir():
+            candidate = candidate / "lllm.toml"
+        if candidate.is_file():
+            return candidate.resolve()
+
+    roots: List[Path] = []
     if start_path is not None:
-        search_roots.append(Path(start_path).resolve())
-    search_roots.append(Path.cwd())
+        roots.append(Path(start_path).resolve())
+    roots.append(Path.cwd())
 
-    for root in search_roots:
+    for root in roots:
         for path in [root, *root.parents]:
             for subdir in CONFIG_SUBDIRS:
                 base = path if subdir == "" else path / subdir
@@ -97,9 +139,18 @@ def find_config_file(start_path: Optional[str | os.PathLike[str]] = None) -> Opt
     return None
 
 
-def load_config(path: Optional[str | os.PathLike[str]] = None) -> Optional[Dict]:
-    config_path = _resolve_candidate(path) or find_config_file(path)
-    if not config_path:
+def load_toml(path: Optional[str | os.PathLike[str]] = None) -> Optional[Dict[str, Any]]:
+    """Load a TOML file.  Stores resolved path in ``data["_config_path"]``."""
+    config_path: Optional[Path] = None
+    if path:
+        p = Path(path).expanduser()
+        if p.is_dir():
+            p = p / "lllm.toml"
+        if p.is_file():
+            config_path = p.resolve()
+    if config_path is None:
+        config_path = find_config_file(path)
+    if config_path is None:
         return None
     with config_path.open("rb") as f:
         data = tomllib.load(f)
@@ -107,145 +158,234 @@ def load_config(path: Optional[str | os.PathLike[str]] = None) -> Optional[Dict]
     return data
 
 
-def auto_discovery_disabled() -> bool:
-    return os.environ.get(LLLM_CONFIG_DISABLE_ENV, "1").lower() in {"0", "false", "no"}
-
-
-
 # ---------------------------------------------------------------------------
-# Auto Discovery 
+# Package loading
 # ---------------------------------------------------------------------------
 
-def auto_discover(
+def load_package(
     config_path: Optional[str | Path] = None,
     *,
     runtime: Optional[Runtime] = None,
-    force: bool = False,
 ) -> None:
-    """Scan ``lllm.toml`` folders and register every Prompt / BaseProxy found.
+    """Load a package and its dependency tree into a runtime.
 
-    Parameters
-    ----------
-    config_path:
-        Explicit path to a ``lllm.toml`` (or directory containing one).
-        Falls back to the normal resolution chain when *None*.
-    runtime:
-        The :class:`Runtime` to register into.  Defaults to the global runtime.
-    force:
-        Re-run discovery even if the runtime was already discovered.
+    Reads ``lllm.toml``, registers the package, loads dependencies
+    recursively, then discovers resources in every section.
     """
     runtime = runtime or get_default_runtime()
-
-    if runtime._discovery_done and not force:
-        return
-    if auto_discovery_disabled():
-        runtime._discovery_done = True
-        return
-
-    config = load_config(config_path)
+    config = load_toml(config_path)
     if not config:
-        runtime._discovery_done = True
         return
 
     base_dir = Path(config["_config_path"]).parent
-    try:
-        _discover_prompts(config.get(PROMPT_SECTION, {}), base_dir, runtime)
-        _discover_proxies(config.get(PROXY_SECTION, {}), base_dir, runtime)
-    finally:
-        runtime._discovery_done = True
+    abs_base = str(base_dir.resolve())
 
-
-def auto_discover_if_enabled(
-    flag: Optional[bool] = None,
-    config_path: Optional[str | Path] = None,
-    *,
-    runtime: Optional[Runtime] = None,
-    force: bool = False,
-) -> None:
-    """Conditionally run :func:`auto_discover`.
-
-    The *flag* parameter takes precedence.  When *None* the process-wide
-    default set by :func:`configure_auto_discover` is used.
-    """
-    if not _should_auto_discover(flag):
+    # Cycle detection
+    if abs_base in runtime._loaded_package_paths:
+        logger.debug("Package at %s already loaded, skipping", abs_base)
         return
-    auto_discover(config_path, runtime=runtime, force=force)
+    runtime._loaded_package_paths.add(abs_base)
+
+    # [package]
+    pkg_section = config.get(PACKAGE_SECTION, {})
+    pkg_name = pkg_section.get("name", base_dir.name)
+    pkg_info = PackageInfo(
+        name=pkg_name,
+        version=pkg_section.get("version", ""),
+        description=pkg_section.get("description", ""),
+        base_dir=abs_base,
+    )
+    runtime.register_package(pkg_info)
+
+    if runtime._default_namespace is None:
+        runtime._default_namespace = pkg_name
+
+    # [dependencies]
+    _load_dependencies(config, base_dir, runtime)
+
+    # Built-in resource sections
+    for section_name in BUILTIN_RESOURCE_SECTIONS:
+        _discover_section(
+            config.get(section_name, {}), base_dir, runtime,
+            package_name=pkg_name, section_name=section_name,
+        )
+
+    # Custom sections
+    for section_name, section_data in config.items():
+        if section_name.startswith("_") or section_name in KNOWN_SECTIONS:
+            continue
+        if not isinstance(section_data, dict):
+            continue
+        _discover_section(
+            section_data, base_dir, runtime,
+            package_name=pkg_name, section_name=section_name,
+        )
 
 
-def configure_auto_discover(enabled: bool) -> None:
-    """Set the process-wide default for ``auto_discover_if_enabled``."""
-    global _DEFAULT_AUTO_DISCOVER
-    _DEFAULT_AUTO_DISCOVER = bool(enabled)
+def _load_dependencies(config: Dict, base_dir: Path, runtime: Runtime) -> None:
+    deps = config.get(DEPENDENCY_SECTION, {}).get("packages", [])
+    for raw in deps:
+        parsed = _parse_dependency_entry(raw)
+        dep_dir = (base_dir / parsed.path).resolve()
+
+        dep_toml = None
+        for name in CONFIG_FILENAMES:
+            candidate = dep_dir / name
+            if candidate.exists():
+                dep_toml = candidate
+                break
+        if dep_toml is None:
+            warnings.warn(f"Dependency '{parsed.path}' has no lllm.toml at {dep_dir}",
+                          RuntimeWarning, stacklevel=2)
+            continue
+
+        load_package(str(dep_toml), runtime=runtime)
+
+        if parsed.alias:
+            dep_config = load_toml(str(dep_toml))
+            if dep_config:
+                dep_name = dep_config.get(PACKAGE_SECTION, {}).get("name", dep_dir.name)
+                if dep_name in runtime.packages:
+                    original = runtime.packages[dep_name]
+                    aliased = PackageInfo(
+                        name=original.name, version=original.version,
+                        description=original.description, base_dir=original.base_dir,
+                        alias=parsed.alias,
+                    )
+                    runtime.packages[parsed.alias] = aliased
+                    _alias_package_resources(runtime, dep_name, parsed.alias)
+
+
+def _alias_package_resources(runtime: Runtime, original_name: str, alias: str) -> None:
+    """Re-register all resources from *original_name* under *alias*."""
+    prefix = f"{original_name}."
+    to_alias: List[Tuple[str, ResourceNode]] = []
+
+    for qk, node in list(runtime._resources.items()):
+        if not node.namespace.startswith(prefix):
+            continue
+        section_part = node.namespace[len(prefix):]
+        new_ns = f"{alias}.{section_part}"
+        to_alias.append((new_ns, node))
+
+    for new_ns, node in to_alias:
+        if node.is_loaded:
+            alias_node = ResourceNode.eager(
+                node.key, node.value, namespace=new_ns,
+                resource_type=node.resource_type,
+            )
+        else:
+            alias_node = ResourceNode.lazy(
+                node.key, node._loader, namespace=new_ns,
+                resource_type=node.resource_type,
+            )
+        runtime.register(alias_node, overwrite=True)
 
 
 # ---------------------------------------------------------------------------
-# Internal helpers — discovery logic
+# Section discovery
 # ---------------------------------------------------------------------------
 
-def _should_auto_discover(flag: Optional[bool]) -> bool:
-    """Resolve an explicit flag against the process-wide default."""
-    if flag is None:
-        return _DEFAULT_AUTO_DISCOVER
-    return bool(flag)
+def _discover_section(
+    section: dict, base_dir: Path, runtime: Runtime,
+    package_name: str, section_name: str,
+) -> None:
+    raw_entries = section.get("paths") or []
 
+    # Default subfolder fallback
+    if not raw_entries:
+        default = base_dir / section_name
+        if default.is_dir():
+            raw_entries = [str(default)]
+        else:
+            return
 
-def _discover_prompts(section: dict, base_dir: Path, runtime: Runtime) -> None:
-    folders = _normalize_paths(section.get("folders") or [], base_dir)
-    for folder in folders:
-        for module, namespace in _load_modules_from_folder(folder, prefix="prompts"):
-            _register_prompts_from_module(module, namespace, runtime)
+    resource_type = _SECTION_TO_RESOURCE_TYPE.get(section_name, section_name)
+    namespace = f"{package_name}.{section_name}"
 
-
-def _discover_proxies(section: dict, base_dir: Path, runtime: Runtime) -> None:
-    folders = _normalize_paths(section.get("folders") or [], base_dir)
-    for folder in folders:
-        for module, namespace in _load_modules_from_folder(folder, prefix="proxies"):
-            _register_proxies_from_module(module, namespace, runtime)
-
-
-# ---------------------------------------------------------------------------
-# Internal helpers — filesystem & module loading
-# ---------------------------------------------------------------------------
-
-def _normalize_paths(entries: Iterable[str], base_dir: Path) -> list[Path]:
-    """Resolve folder entries relative to *base_dir*, skip missing ones."""
-    normalized: list[Path] = []
-    for entry in entries:
-        path = Path(entry)
+    for raw in raw_entries:
+        parsed = _parse_path_entry(raw)
+        path = Path(parsed.path)
         if not path.is_absolute():
             path = (base_dir / path).resolve()
-        if path.exists():
-            normalized.append(path)
+        if not path.exists():
+            warnings.warn(f"LLLM discovery skipped missing path: {path}",
+                          RuntimeWarning, stacklevel=3)
+            continue
+
+        prefix = parsed.prefix or ""
+
+        if section_name == CONFIG_SECTION:
+            _discover_configs(path, runtime, namespace, resource_type, prefix)
         else:
-            warnings.warn(
-                f"LLLM discovery skipped missing path: {path}",
-                RuntimeWarning,
-                stacklevel=3,
-            )
-    return normalized
+            _discover_python_modules(path, runtime, namespace, section_name,
+                                     resource_type, prefix)
 
 
-def _load_modules_from_folder(
-    folder: Path, prefix: str
-) -> Iterable[tuple[types.ModuleType, str]]:
-    """Import every ``*.py`` in *folder* (non-recursive), yielding (module, namespace)."""
-    for file in sorted(folder.glob("*.py")):
-        if file.name in IGNORED_FILES or file.name.startswith("_"):
+# ---------------------------------------------------------------------------
+# Python module discovery
+# ---------------------------------------------------------------------------
+
+def _discover_python_modules(
+    root: Path, runtime: Runtime, namespace: str,
+    section_name: str, resource_type: str, prefix: str,
+) -> None:
+    for py_file in sorted(root.rglob("*.py")):
+        if py_file.name in IGNORED_FILES or py_file.name.startswith("_"):
             continue
-        namespace = f"{prefix}.{folder.name}.{file.stem}"
+        if "__pycache__" in py_file.parts:
+            continue
+
+        relative = str(py_file.relative_to(root).with_suffix("")).replace(os.sep, "/")
+        mod_ns = f"lllm._discovered.{namespace}.{relative.replace('/', '.')}"
+
         try:
-            module = _load_module_from_file(file, namespace)
-        except Exception as exc:  # pragma: no cover — best-effort discovery
-            warnings.warn(
-                f"LLLM discovery failed to load {file}: {exc}",
-                RuntimeWarning,
-                stacklevel=2,
-            )
+            module = _load_module(py_file, mod_ns)
+        except Exception as exc:
+            warnings.warn(f"LLLM discovery failed to load {py_file}: {exc}",
+                          RuntimeWarning, stacklevel=2)
             continue
-        yield module, file.stem
+
+        if section_name == PROMPT_SECTION:
+            _register_prompts(module, relative, runtime, namespace, resource_type, prefix)
+        elif section_name == PROXY_SECTION:
+            _register_proxies(module, relative, runtime, namespace, resource_type, prefix)
+        elif section_name == TACTIC_SECTION:
+            _register_tactics(module, relative, runtime, namespace, resource_type, prefix)
+        else:
+            # Custom section — try all typed registrations
+            _register_prompts(module, relative, runtime, namespace, resource_type, prefix)
+            _register_proxies(module, relative, runtime, namespace, resource_type, prefix)
+            _register_tactics(module, relative, runtime, namespace, resource_type, prefix)
 
 
-def _load_module_from_file(file_path: Path, namespace: str) -> types.ModuleType:
+def _discover_configs(
+    root: Path, runtime: Runtime, namespace: str,
+    resource_type: str, prefix: str,
+) -> None:
+    for pattern in ("**/*.yaml", "**/*.yml"):
+        for f in sorted(root.rglob(pattern.split("/")[-1]) if "/" not in pattern
+                        else root.glob(pattern)):
+            if not f.is_file():
+                continue
+            rel = str(f.relative_to(root).with_suffix("")).replace(os.sep, "/")
+            key = f"{prefix}/{rel}".strip("/")
+            file_path = f  # capture for closure
+
+            def _loader(p=file_path):
+                import yaml
+                with p.open() as fh:
+                    return yaml.safe_load(fh)
+
+            node = ResourceNode.lazy(key, _loader, namespace=namespace,
+                                     resource_type=resource_type)
+            try:
+                runtime.register(node, overwrite=True)
+            except Exception as exc:
+                logger.warning("Failed to register config '%s': %s", key, exc)
+
+
+def _load_module(file_path: Path, namespace: str) -> types.ModuleType:
     spec = importlib.util.spec_from_file_location(namespace, file_path)
     if spec is None or spec.loader is None:
         raise ImportError(f"Cannot create module spec from {file_path}")
@@ -255,37 +395,294 @@ def _load_module_from_file(file_path: Path, namespace: str) -> types.ModuleType:
 
 
 # ---------------------------------------------------------------------------
-# Internal helpers — registration
+# Typed registration helpers
 # ---------------------------------------------------------------------------
 
-def _register_prompts_from_module(
-    module: types.ModuleType, namespace: str, runtime: Runtime
-) -> None:
-    # Import Prompt here to avoid circular imports at module level
-    from lllm.core.prompt import Prompt
+def _make_key(prefix: str, relative: str, name: str) -> str:
+    return "/".join(p for p in [prefix, relative, name] if p).strip("/")
 
+
+def _register_prompts(module, relative, runtime, namespace, resource_type, prefix):
+    from lllm.core.prompt import Prompt
     for attr_name, attr in vars(module).items():
         if not isinstance(attr, Prompt):
             continue
-        # Auto-prefix the path when the prompt doesn't already have a namespace
-        if "/" not in attr.path:
-            attr.path = f"{namespace}/{attr.path}".strip("/")
+        key = _make_key(prefix, relative, attr.path)
+        node = ResourceNode.eager(key, attr, namespace=namespace,
+                                  resource_type=resource_type)
         try:
-            runtime.register_prompt(attr, overwrite=True)
-        except Exception as exc:  # pragma: no cover
-            logger.warning("Failed to register prompt '%s': %s", attr.path, exc)
+            runtime.register(node, overwrite=True)
+            attr._qualified_key = node.qualified_key
+        except Exception as exc:
+            logger.warning("Failed to register prompt '%s': %s", key, exc)
 
 
-def _register_proxies_from_module(
-    module: types.ModuleType, namespace: str, runtime: Runtime
-) -> None:
+def _register_proxies(module, relative, runtime, namespace, resource_type, prefix):
     from lllm.proxies.base import BaseProxy
-
     for attr_name, cls in vars(module).items():
         if not (inspect.isclass(cls) and issubclass(cls, BaseProxy) and cls is not BaseProxy):
             continue
-        proxy_name = getattr(cls, "_proxy_path", f"{namespace}/{cls.__name__}")
+        proxy_path = getattr(cls, "_proxy_path", None)
+        if proxy_path:
+            key = f"{prefix}/{proxy_path}".strip("/") if prefix else proxy_path
+        else:
+            key = _make_key(prefix, relative, cls.__name__)
+        node = ResourceNode.eager(key, cls, namespace=namespace,
+                                  resource_type=resource_type)
         try:
-            runtime.register_proxy(proxy_name, cls, overwrite=True)
-        except Exception as exc:  # pragma: no cover
-            logger.warning("Failed to register proxy '%s': %s", proxy_name, exc)
+            runtime.register(node, overwrite=True)
+        except Exception as exc:
+            logger.warning("Failed to register proxy '%s': %s", key, exc)
+
+
+def _register_tactics(module, relative, runtime, namespace, resource_type, prefix):
+    from abc import ABC
+    for attr_name, cls in vars(module).items():
+        if not (inspect.isclass(cls) and issubclass(cls, ABC)):
+            continue
+        tactic_name = getattr(cls, "name", None)
+        if not tactic_name or not hasattr(cls, "agent_group"):
+            continue
+        key = f"{prefix}/{tactic_name}".strip("/") if prefix else tactic_name
+        node = ResourceNode.eager(key, cls, namespace=namespace,
+                                  resource_type=resource_type)
+        try:
+            runtime.register(node, overwrite=True)
+        except Exception as exc:
+            logger.warning("Failed to register tactic '%s': %s", key, exc)
+
+
+# ---------------------------------------------------------------------------
+# Config resolution (inheritance via `base` key)
+# ---------------------------------------------------------------------------
+
+def _deep_merge(base: Dict, override: Dict) -> Dict:
+    """Recursively merge *override* into *base*.
+
+    - Dict values are merged recursively.
+    - List values are replaced (not appended).
+    - Scalar values are replaced.
+
+    Neither input is mutated; returns a new dict.
+    """
+    result = base.copy()
+    for key, val in override.items():
+        if (
+            key in result
+            and isinstance(result[key], dict)
+            and isinstance(val, dict)
+        ):
+            result[key] = _deep_merge(result[key], val)
+        else:
+            result[key] = val
+    return result
+
+
+def resolve_config(
+    name: str,
+    runtime: Optional[Runtime] = None,
+    *,
+    _visited: Optional[set] = None,
+) -> Dict[str, Any]:
+    """Load a config by name and resolve ``base`` inheritance.
+
+    The ``base`` key points to another config name (no ``.yaml`` suffix).
+    Inheritance is recursive — each level's keys override the parent's,
+    with dict values merged deeply (so ``model_args`` from both parent
+    and child are combined, not replaced wholesale).
+
+    Parameters
+    ----------
+    name:
+        Config resource name, e.g. ``"default"`` or
+        ``"agent_cfgs/agent1"`` or ``"my_pkg:default"``.
+    runtime:
+        The runtime to look up configs from.
+
+    Returns
+    -------
+    The fully merged config dict (``base`` key removed).
+    """
+    runtime = runtime or get_default_runtime()
+    _visited = _visited or set()
+
+    if name in _visited:
+        raise ValueError(
+            f"Circular config inheritance detected: "
+            f"'{name}' already in chain {_visited}"
+        )
+    _visited.add(name)
+
+    config = runtime.get_config(name)
+    if not isinstance(config, dict):
+        raise TypeError(
+            f"Config '{name}' is not a dict (got {type(config).__name__})"
+        )
+
+    config = config.copy()
+    base_name = config.pop("base", None)
+    if base_name is None:
+        return config
+
+    parent = resolve_config(base_name, runtime, _visited=_visited)
+    return _deep_merge(parent, config)
+
+
+# ---------------------------------------------------------------------------
+# AgentSpec — config → agent intermediate representation
+# ---------------------------------------------------------------------------
+
+_KNOWN_AGENT_KEYS = frozenset({
+    "name", "model_name", "system_prompt", "system_prompt_path",
+    "api_type", "model_args",
+    "max_exception_retry", "max_interrupt_steps", "max_llm_recall",
+    "extra_settings",
+})
+
+
+@dataclass
+class AgentSpec:
+    """
+    Parsed, validated description of one agent from config.
+
+    Intermediate representation between raw YAML and live Agent instances.
+    Config parsing fails here with clear errors; Agent construction is trivial.
+
+    Config format (per-agent, after global merge)::
+
+        name: analyzer
+        model_name: gpt-4o
+        system_prompt_path: analytica/analyzer_system   # OR
+        system_prompt: "You are an analyst. ..."          # inline
+        api_type: completion
+        model_args:
+            temperature: 0.1
+            max_completion_tokens: 20000
+        max_exception_retry: 3
+        max_interrupt_steps: 5
+        max_llm_recall: 0
+        extra_settings: {}
+    """
+
+    name: str
+    model: str
+    system_prompt_path: Optional[str] = None
+    system_prompt: Any = None          # Prompt object or None
+    api_type: str = "completion"       # stored as string, converted at build time
+    model_args: Dict[str, Any] = field(default_factory=dict)
+    max_exception_retry: int = 3
+    max_interrupt_steps: int = 5
+    max_llm_recall: int = 0
+    extra_settings: Dict[str, Any] = field(default_factory=dict)
+
+    @classmethod
+    def from_config(cls, name: str, raw: Dict[str, Any]) -> "AgentSpec":
+        """Parse a single agent config dict into an AgentSpec.
+
+        *raw* is the per-agent dict **after** global defaults have been
+        merged in.  Known keys are extracted; unknown keys are treated
+        as additional model_args.
+        """
+        raw = raw.copy()
+
+        # -- required: model -----------------------------------------------
+        model = raw.pop("model_name", None)
+        if model is None:
+            raise ValueError(f"Agent '{name}' missing required 'model_name'")
+
+        # -- required: system prompt (inline string or registry path) ------
+        inline_prompt_str = raw.pop("system_prompt", None)
+        system_prompt_path = raw.pop("system_prompt_path", None)
+        if inline_prompt_str is None and system_prompt_path is None:
+            raise ValueError(
+                f"Agent '{name}' needs either 'system_prompt' or 'system_prompt_path'"
+            )
+
+        # Build a Prompt object from inline string if provided
+        system_prompt = None
+        if inline_prompt_str is not None:
+            from lllm.core.prompt import Prompt
+            system_prompt = Prompt(path=f"_inline/{name}/system", prompt=inline_prompt_str)
+
+        # -- optional typed fields -----------------------------------------
+        api_type = raw.pop("api_type", "completion")
+        max_exception_retry = raw.pop("max_exception_retry", 3)
+        max_interrupt_steps = raw.pop("max_interrupt_steps", 5)
+        max_llm_recall = raw.pop("max_llm_recall", 0)
+        extra_settings = raw.pop("extra_settings", {})
+
+        # -- model_args: explicit dict + leftover unknown keys -------------
+        model_args = raw.pop("model_args", {})
+        raw.pop("name", None)
+        model_args.update(raw)  # anything left is additional model_args
+
+        return cls(
+            name=name,
+            model=model,
+            system_prompt_path=system_prompt_path,
+            system_prompt=system_prompt,
+            api_type=api_type,
+            model_args=model_args,
+            max_exception_retry=max_exception_retry,
+            max_interrupt_steps=max_interrupt_steps,
+            max_llm_recall=max_llm_recall,
+            extra_settings=extra_settings,
+        )
+
+    def build(self, runtime: Runtime, invoker, log_base=None):
+        """Construct a live Agent from this spec."""
+        from lllm.core.agent import Agent
+        from lllm.core.const import APITypes
+
+        if self.system_prompt is not None:
+            prompt = self.system_prompt
+        else:
+            prompt = runtime.get_prompt(self.system_prompt_path)
+
+        api_type = self.api_type if isinstance(self.api_type, APITypes) else APITypes(self.api_type)
+
+        return Agent(
+            name=self.name,
+            system_prompt=prompt,
+            model=self.model,
+            llm_invoker=invoker,
+            api_type=api_type,
+            model_args=self.model_args,
+            log_base=log_base,
+            max_exception_retry=self.max_exception_retry,
+            max_interrupt_steps=self.max_interrupt_steps,
+            max_llm_recall=self.max_llm_recall,
+        )
+
+
+def parse_agent_configs(
+    config: Dict[str, Any],
+    agent_group: List[str],
+    tactic_name: str,
+) -> Dict[str, "AgentSpec"]:
+    """Parse ``global`` + ``agent_configs`` from a tactic config dict.
+
+    Returns ``{agent_name: AgentSpec}`` for each name in *agent_group*.
+    """
+    global_cfg = config.get("global", {})
+    raw_list = config.get("agent_configs", [])
+
+    agent_by_name: Dict[str, Dict] = {}
+    for entry in raw_list:
+        if not isinstance(entry, dict):
+            raise TypeError(f"agent_configs entries must be dicts, got {type(entry).__name__}")
+        name = entry.get("name")
+        if name is None:
+            raise ValueError(f"Agent config entry missing 'name': {entry}")
+        agent_by_name[name] = _deep_merge(global_cfg, entry)
+
+    specs: Dict[str, AgentSpec] = {}
+    for agent_name in agent_group:
+        if agent_name not in agent_by_name:
+            raise ValueError(
+                f"Agent '{agent_name}' required by tactic '{tactic_name}' "
+                f"not found in agent_configs. Available: {sorted(agent_by_name)}"
+            )
+        specs[agent_name] = AgentSpec.from_config(agent_name, agent_by_name[agent_name])
+
+    return specs
