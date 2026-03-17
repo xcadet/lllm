@@ -339,9 +339,9 @@ class Tactic(ABC):
         self,
         task: Union[str, BaseModel],
         session_name: Optional[str] = None,
-        return_session: bool = False,
         tags: Optional[Dict[str, str]] = None,
         metadata: Optional[Dict[str, Any]] = None,
+        return_session: bool = False,
         **kwargs,
     ) -> Union[str, BaseModel, TacticCallSession]:
         if session_name is None:
@@ -405,31 +405,31 @@ class Tactic(ABC):
 
         return session if return_session else result
 
-    def __call__(self, task, session_name=None, return_session=False, tags=None, metadata=None, **kwargs):
-        return self._execute(task, session_name, return_session, tags=tags, metadata=metadata, **kwargs)
+    def __call__(self, task, session_name=None, tags=None, metadata=None,  return_session=False, **kwargs):
+        return self._execute(task, session_name, tags=tags, metadata=metadata, return_session=return_session, **kwargs)
 
-    async def acall(self, task, return_session=False, tags=None, metadata=None, **kwargs):
+    async def acall(self, task, tags=None, metadata=None, return_session=False, **kwargs):
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
             None,
-            lambda: self._execute(task, return_session=return_session, tags=tags, metadata=metadata, **kwargs),
+            lambda: self._execute(task, tags=tags, metadata=metadata, return_session=return_session, **kwargs),
         )
 
-    def bcall(self, tasks, return_sessions=False, max_workers=None, tags=None, metadata=None, **kwargs):
+    def bcall(self, tasks, max_workers=None, tags=None, metadata=None, return_sessions=False, **kwargs):
         workers = max_workers or self._max_workers
         with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
             futures = [
-                pool.submit(self._execute, t, None, return_sessions, tags, metadata, **kwargs)
+                pool.submit(self._execute, t, None, tags, metadata, return_session=return_sessions, **kwargs)
                 for t in tasks
             ]
             return [f.result() for f in futures]
 
-    async def ccall(self, tasks, return_sessions=False, max_workers=None, tags=None, metadata=None, **kwargs):
+    async def ccall(self, tasks, max_workers=None, tags=None, metadata=None, return_sessions=False, **kwargs):
         workers = max_workers or self._max_workers
         loop = asyncio.get_running_loop()
         with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
             def _run(idx, t):
-                return idx, self._execute(t, return_session=return_sessions, tags=tags, metadata=metadata, **kwargs)
+                return idx, self._execute(t, tags=tags, metadata=metadata, return_session=return_sessions, **kwargs)
             futures = [loop.run_in_executor(pool, _run, i, t) for i, t in enumerate(tasks)]
             for coro in asyncio.as_completed(futures):
                 idx, result = await coro
