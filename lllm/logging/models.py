@@ -25,6 +25,7 @@ class SessionSummary:
 
     session_id: str
     tactic_name: str
+    tactic_path: str        # stable ID: "{package_name}::{tactic_name}", e.g. "my_pkg::researcher"
     state: str
     total_cost: float
     agent_call_count: int

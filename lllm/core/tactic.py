@@ -119,6 +119,8 @@ class TacticCallSession(BaseModel):
     """
 
     tactic_name: str
+    tactic_path: Optional[str] = None  # stable ID: "{package_name}::{tactic_name}", e.g. "my_pkg::researcher"
+
     state: str = "initial"
 
     agent_sessions: Dict[str, List[AgentCallSession]] = Field(default_factory=dict)
@@ -215,6 +217,32 @@ def get_tactic_class(name, runtime=None):
     return runtime.get_tactic(name)
 
 
+def _stable_tactic_id(namespace: str, tactic_name: str) -> str:
+    """Return the stable physical identifier for a tactic: ``pkg::name``.
+
+    The identifier is derived from the package name (first component of the
+    node namespace, e.g. ``"my_pkg"`` from ``"my_pkg.tactics"``) and the
+    tactic's ``name`` class attribute.
+
+    It is intentionally independent of:
+    - file/folder structure inside the package
+    - ``under`` prefix in lllm.toml
+    - aliases (``as`` keyword in dependencies)
+
+    Only two semantic changes break it:
+    - renaming ``[package] name`` in lllm.toml
+    - renaming ``Tactic.name``
+
+    When the tactic is used outside the package system (no namespace),
+    falls back to the bare ``tactic_name``.
+    """
+    if namespace:
+        # "my_pkg.tactics" → "my_pkg", "my_pkg" → "my_pkg"
+        package_name = namespace.split(".")[0]
+        return f"{package_name}::{tactic_name}"
+    return tactic_name
+
+
 def build_tactic(
     config: Dict[str, Any],
     ckpt_dir: str,
@@ -232,8 +260,24 @@ def build_tactic(
     if name is None:
         name = config.get("tactic_type")
     name = _normalize_name(name)
-    tactic_cls = get_tactic_class(name, runtime)
-    return tactic_cls(config, ckpt_dir, log_store=log_store, runtime=runtime, **kwargs)
+    rt = runtime or get_default_runtime()
+    tactic_cls = get_tactic_class(name, rt)
+
+    # Build the stable tactic ID: "{package_name}::{tactic_name}".
+    # This is independent of file layout, "under" prefixes, and aliases —
+    # only a package rename or Tactic.name change would alter it.
+    try:
+        node = rt.get_node(name, resource_type="tactic")
+        tactic_path = _stable_tactic_id(node.namespace, tactic_cls.name)
+    except (KeyError, AttributeError):
+        tactic_path = tactic_cls.name  # not in package system — bare name
+
+    return tactic_cls(
+        config, ckpt_dir,
+        log_store=log_store, runtime=rt,
+        tactic_path=tactic_path,
+        **kwargs,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -285,6 +329,7 @@ class Tactic(ABC):
         ckpt_dir: str,
         log_store: Optional[LogStore] = None,
         runtime: Optional[Runtime] = None,
+        tactic_path: Optional[str] = None,
     ):
         self._runtime = runtime or get_default_runtime()
         self._sub_tactics: Dict[str, Tactic] = {}
@@ -293,6 +338,9 @@ class Tactic(ABC):
         self.ckpt_dir = ckpt_dir
         self._log_store: Optional[LogStore] = log_store
         self._log_store_warned: bool = False
+        # Absolute qualified key in the runtime, e.g. "my_pkg.tactics:folder/researcher".
+        # If not supplied by build_tactic, resolved lazily on first use.
+        self._tactic_path: Optional[str] = tactic_path
         self.llm_invoker = build_invoker(config)
 
         # Parse agent specs from the new config format
@@ -354,7 +402,18 @@ class Tactic(ABC):
 
         ctx = copy.copy(self)
         ctx._sub_tactics = dict(self._sub_tactics)
-        session = TacticCallSession(tactic_name=self.name)
+
+        # Resolve stable tactic ID lazily (once, then cached).
+        # Format: "{package_name}::{tactic_name}", e.g. "my_pkg::researcher".
+        # Independent of file layout, "under" prefixes, and aliases.
+        if self._tactic_path is None:
+            try:
+                node = self._runtime.get_node(self.name, resource_type="tactic")
+                self._tactic_path = _stable_tactic_id(node.namespace, self.name)
+            except (KeyError, AttributeError):
+                self._tactic_path = self.name  # not in package system
+
+        session = TacticCallSession(tactic_name=self.name, tactic_path=self._tactic_path)
         session.state = "running"
         ctx._session = session
 

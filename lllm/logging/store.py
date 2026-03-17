@@ -81,11 +81,16 @@ class LogStore:
         backend:   A LogBackend instance (LocalFileBackend, SQLiteBackend, etc.).
         namespace: Logical prefix for all keys.  Defaults to ``"default"``.
                    Typically set to the package/runtime name.
+        runtime:   Optional Runtime instance.  When supplied, ``list_sessions``
+                   and ``export_cost_summary`` accept any alias or short path
+                   (e.g. ``"my_pkg:folder/researcher"``) and resolve it to the
+                   canonical absolute key (e.g. ``"my_pkg.tactics:folder/researcher"``).
     """
 
-    def __init__(self, backend: LogBackend, namespace: str = "default"):
+    def __init__(self, backend: LogBackend, namespace: str = "default", runtime=None):
         self._backend = backend
         self._ns = namespace.strip("/")
+        self._runtime = runtime  # optional Runtime for alias resolution
 
     # ------------------------------------------------------------------
     # Internal key helpers
@@ -104,6 +109,35 @@ class LogStore:
         ts = dt.datetime.now().strftime("%Y%m%d_%H%M%S")
         uid = uuid.uuid4().hex[:8]
         return f"{ts}_{uid}"
+
+    def _resolve_tactic_path(self, path: str) -> str:
+        """Resolve any tactic path form to the stable physical identifier.
+
+        The stable identifier is ``"{package_name}::{tactic_name}"``, e.g.
+        ``"my_pkg::researcher"``.  It is independent of file layout, ``under``
+        prefixes, and aliases — any of the following resolve to the same value::
+
+            "researcher"                            → "my_pkg::researcher"
+            "my_pkg:folder/researcher"              → "my_pkg::researcher"
+            "my_pkg.tactics:folder/researcher"      → "my_pkg::researcher"
+            "alias_pkg:folder/researcher"           → "my_pkg::researcher"
+
+        Falls back to returning *path* unchanged when the runtime cannot
+        resolve it (tactic not in registry, or no runtime attached).
+        """
+        if self._runtime is None:
+            return path
+        try:
+            node = self._runtime.get_node(path, resource_type="tactic")
+            namespace = node.namespace
+            # tactic_name lives on the class stored as the node value
+            tactic_name = getattr(node.value, "name", None)
+            if tactic_name and namespace:
+                package_name = namespace.split(".")[0]
+                return f"{package_name}::{tactic_name}"
+            return path
+        except (KeyError, AttributeError):
+            return path
 
     # ------------------------------------------------------------------
     # Write
@@ -147,9 +181,14 @@ class LogStore:
         except Exception:
             agent_call_count = 0
 
+        tactic_name = getattr(session, "tactic_name", "unknown")
+        # Prefer the absolute qualified key; fall back to simple name.
+        tactic_path = getattr(session, "tactic_path", None) or tactic_name
+
         index_entry = {
             "session_id": session_id,
-            "tactic_name": getattr(session, "tactic_name", "unknown"),
+            "tactic_name": tactic_name,           # kept for backward compat
+            "tactic_path": tactic_path,            # absolute qualified key
             "state": getattr(session, "state", "unknown"),
             "total_cost": total_cost,
             "agent_call_count": agent_call_count,
@@ -241,16 +280,31 @@ class LogStore:
         tags: Optional[Dict[str, str]] = None,
         after: Optional[dt.datetime] = None,
         before: Optional[dt.datetime] = None,
-        tactic_name: Optional[str] = None,
+        tactic_path: Optional[str] = None,
         state: Optional[str] = None,
         limit: int = 100,
     ) -> List[SessionSummary]:
         """
-        Query sessions by tags, time range, tactic name, or state.
+        Query sessions by tags, time range, tactic path, or state.
+
+        *tactic_path* accepts any form understood by the runtime:
+        - Absolute key: ``"my_pkg.tactics:folder/researcher"``
+        - Package-qualified: ``"my_pkg:folder/researcher"``
+        - Bare name (default namespace): ``"researcher"``
+        - Alias: ``"alias_pkg:folder/researcher"``
+
+        When a runtime is attached to this LogStore the path is resolved to
+        its canonical absolute key before matching.  Old index entries that
+        pre-date this feature are matched against ``tactic_name`` as a fallback.
 
         Returns lightweight summaries without loading full session data.
         Results are sorted newest-first.
         """
+        # Resolve the filter path once, before the scan loop.
+        resolved_tactic_path: Optional[str] = (
+            self._resolve_tactic_path(tactic_path) if tactic_path else None
+        )
+
         prefix = f"{self._ns}/index/"
         all_keys = self._backend.list_keys(prefix)
 
@@ -283,8 +337,11 @@ class LogStore:
                 except (ValueError, TypeError):
                     pass
 
-            if tactic_name and entry.get("tactic_name") != tactic_name:
-                continue
+            if resolved_tactic_path:
+                # New entries have tactic_path; old ones only have tactic_name.
+                entry_path = entry.get("tactic_path") or entry.get("tactic_name", "")
+                if entry_path != resolved_tactic_path:
+                    continue
 
             if state and entry.get("state") != state:
                 continue
@@ -293,6 +350,7 @@ class LogStore:
                 SessionSummary(
                     session_id=entry["session_id"],
                     tactic_name=entry.get("tactic_name", "unknown"),
+                    tactic_path=entry.get("tactic_path") or entry.get("tactic_name", "unknown"),
                     state=entry.get("state", "unknown"),
                     total_cost=entry.get("total_cost", 0.0),
                     agent_call_count=entry.get("agent_call_count", 0),
@@ -322,9 +380,13 @@ class LogStore:
         tags: Optional[Dict[str, str]] = None,
         after: Optional[dt.datetime] = None,
         before: Optional[dt.datetime] = None,
+        tactic_path: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Aggregate cost data across matching sessions."""
-        summaries = self.list_sessions(tags=tags, after=after, before=before, limit=10_000)
+        summaries = self.list_sessions(
+            tags=tags, after=after, before=before,
+            tactic_path=tactic_path, limit=10_000,
+        )
         total_cost = sum(s.total_cost for s in summaries)
         return {
             "session_count": len(summaries),

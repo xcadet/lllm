@@ -126,7 +126,12 @@ pytest tests/
   - [x] `AgentSpec` with inline `system_prompt` or `system_prompt_path` resolution
   - [x] `resolve_config()` for recursive config inheritance
   - [x] Convenience loaders: `load_prompt`, `load_tactic`, `load_proxy`, `load_config`, `load_resource`
-- [ ] Logger (cli logging), replayable logging system, and printing system (log.py, utils.py)
+- [x] Logger (cli logging), replayable logging system, and printing system (log.py, utils.py)
+  - [x] `LogStore` with pluggable backends (`LocalFileBackend`, `SQLiteBackend`, `NoOpBackend`)
+  - [x] Tag-based indexing and filtering, cost aggregation, export helpers
+  - [x] Stable `pkg::name` tactic identity independent of file layout and aliases
+  - [x] `ColoredFormatter` and `setup_logging` for terminal output
+  - [x] Convenience factories: `local_store`, `sqlite_store`, `noop_store`
 - [ ] Fast mode, 5-line code to build a simple system.
 
 
