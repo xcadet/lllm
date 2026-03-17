@@ -30,21 +30,57 @@ No `lllm.toml`, no folder structure, no subclassing. [Full quick start →](gett
 
 ## Learning Path
 
-LLLM is designed to grow with you. Here's the recommended reading order:
+<div class="grid cards" markdown>
 
-**1. [Getting Started](getting-started.md)** — Install and run your first agent in 5 lines.
+-   :material-rocket-launch:{ .lg .middle } **1 · Getting Started**
 
-**2. [Architecture Overview](architecture/overview.md)** — How the four abstractions (Agent, Prompt, Dialog, Tactic) fit together, and where the package system fits in.
+    ---
 
-**3. [Package System](architecture/packages.md)** — The organisational layer that makes projects beyond a single script work cleanly. This is the central concept for any real lllm project.
+    Install LLLM and run your first agent in 5 lines. No config needed.
 
-**4. [Tutorial: Build a Full Package](guides/building-agents.md)** — Walk through from a single agent to a complete multi-agent package with logging. Each step builds on the last.
+    [:octicons-arrow-right-24: Quick Start](getting-started.md)
 
-**5. Advanced Customization** — Plug in your own components once you need them:
+-   :material-map:{ .lg .middle } **2 · Architecture Overview**
 
-- [Invokers](core/invokers.md) — swap or extend the LLM backend (`BaseInvoker`)
-- [Logging & Backends](core/logging.md) — session tracking, custom storage backends
-- [Proxy & Tools](core/proxy-and-sandbox.md) — build custom tools with the proxy system
+    ---
+
+    How the four abstractions — Agent, Prompt, Dialog, Tactic — fit together, and where the package system fits in.
+
+    [:octicons-arrow-right-24: Overview](architecture/overview.md)
+
+-   :material-package-variant:{ .lg .middle } **3 · Package System**
+
+    ---
+
+    The organisational layer that makes projects beyond a single script work cleanly. Central to any real LLLM project.
+
+    [:octicons-arrow-right-24: Package System](architecture/packages.md)
+
+-   :material-hammer-wrench:{ .lg .middle } **4 · Build a Full Package**
+
+    ---
+
+    Step-by-step tutorial: single agent → structured output → tools → full package → logging.
+
+    [:octicons-arrow-right-24: Tutorial](guides/building-agents.md)
+
+-   :material-tune:{ .lg .middle } **5 · Advanced Customization**
+
+    ---
+
+    Custom invokers, log backends, and proxy tools — the deep extension points.
+
+    [:octicons-arrow-right-24: Invokers](core/invokers.md) · [:octicons-arrow-right-24: Logging](core/logging.md) · [:octicons-arrow-right-24: Proxy](core/proxy-and-sandbox.md)
+
+-   :material-code-tags:{ .lg .middle } **API Reference**
+
+    ---
+
+    Auto-generated docs for Agent, Tactic, Prompt, Dialog, LogStore, and all public classes.
+
+    [:octicons-arrow-right-24: Core API](reference/core.md)
+
+</div>
 
 ---
 
