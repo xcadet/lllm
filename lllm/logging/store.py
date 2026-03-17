@@ -87,7 +87,7 @@ class LogStore:
                    canonical stable key (e.g. ``"my_pkg::researcher"``).
     """
 
-    def __init__(self, backend: LogBackend, partition: str = "default", runtime=None):
+    def __init__(self, backend: LogBackend, partition: str = "default", runtime: Optional[Any] = None):
         self._backend = backend
         self._ns = partition.strip("/")
         self._runtime = runtime  # optional Runtime for alias resolution
