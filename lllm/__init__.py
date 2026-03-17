@@ -18,7 +18,7 @@ from lllm.core.tactic import Tactic, build_tactic, register_tactic_class
 from lllm.proxies import BaseProxy, ProxyManager, register_proxy, ProxyRegistrator
 from lllm.logging import LogStore, LocalFileBackend, SQLiteBackend, NoOpBackend, setup_logging
 
-__version__ = "0.0.2"
+__version__ = "0.1.0"
 
 
 def _auto_init():
