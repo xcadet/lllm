@@ -2,7 +2,7 @@
 
 This lesson brings together everything covered so far and introduces patterns for production-grade agentic systems: multi-proxy orchestration, dialog forking for exploration, structured multi-step pipelines, and parallel batch processing.
 
-> **Proxy basics** (defining a `BaseProxy`, `exec_env: interpreter`, `run_python`, `CALL_API`) are covered in [Lesson 4 — Tools](04-tools.md#proxy-tools--structured-access-to-external-apis). This lesson assumes you are already comfortable with the single-proxy setup and shows more advanced compositions.
+> **Proxy basics** (defining a `BaseProxy`, `exec_env: interpreter`, `run_python`, `CALL_API`) are covered in [Lesson 4 — Tools](04-tools.md#proxy-tools). This lesson assumes you are already comfortable with the single-proxy setup and shows more advanced compositions.
 
 ---
 
@@ -304,7 +304,7 @@ results = tactic.bcall(
 
 ## What to Explore Next
 
-- **Proxy basics** — defining proxies and the interpreter tool loop: [Lesson 4 — Tools](04-tools.md#proxy-tools--structured-access-to-external-apis).
+- **Proxy basics** — defining proxies and the interpreter tool loop: [Lesson 4 — Tools](04-tools.md#proxy-tools).
 - **Computer Use Agent** — `lllm.tools.cua` for browser automation via Playwright.
 - **Responses API** — set `api_type = "response"` per agent to enable native OpenAI web search.
 - **Skills** — higher-level reusable agent behaviours (see the [Skills](https://agentskills.io) documentation).

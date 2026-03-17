@@ -215,7 +215,7 @@ The model sees `"Error: Division by zero"` as the result and can decide how to p
 
 ---
 
-## Proxy Tools — Structured Access to External APIs
+## Proxy Tools — Structured Access to External APIs { #proxy-tools }
 
 For agents that need to call many API endpoints, the `@tool` approach scales poorly: dozens of endpoints means dozens of tool definitions and a bloated context. LLLM's **proxy system** solves this with a two-tool pattern the agent uses lazily:
 

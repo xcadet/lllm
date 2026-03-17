@@ -273,7 +273,7 @@ class BlogPostTactic(BaseWritingTactic):
         return reviewer.respond().content
 ```
 
-See the full working example at [examples/advanced/multi_agent_tactic.py](../../examples/advanced/multi_agent_tactic.py) and the real-world [code review service](../../examples/code_review_service/tactics/code_review.py) for a typed-I/O variant.
+See the full working example in `examples/advanced/multi_agent_tactic.py` and the real-world typed-I/O variant in `examples/code_review_service/tactics/code_review.py`.
 
 ---
 

@@ -262,7 +262,7 @@ class StructuredAnalysisTactic(BaseAnalysisTactic):
         return AnalysisOutput.model_validate_json(raw)
 ```
 
-See the working examples at [examples/advanced/multi_agent_tactic.py](../../examples/advanced/multi_agent_tactic.py) and [examples/code_review_service/tactics/code_review.py](../../examples/code_review_service/tactics/code_review.py).
+See the working examples in `examples/advanced/multi_agent_tactic.py` and `examples/code_review_service/tactics/code_review.py`.
 
 ---
 
