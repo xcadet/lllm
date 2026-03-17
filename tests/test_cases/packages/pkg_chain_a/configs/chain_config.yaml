@@ -1,0 +1,7 @@
+global:
+  model_name: gpt-4o-mini
+  chain_level: 1
+
+agent_configs:
+  - name: chain_agent
+    system_prompt: "I am chain_a agent."

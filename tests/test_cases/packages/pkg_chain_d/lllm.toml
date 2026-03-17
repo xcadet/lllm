@@ -1,0 +1,4 @@
+[package]
+name = "pkg_chain_d"
+version = "1.0.0"
+description = "Bottom of the 4-level chain — no dependencies"

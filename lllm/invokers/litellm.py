@@ -175,9 +175,16 @@ class LiteLLMInvoker(BaseInvoker):
             usage_dict["output_cost_per_token"] = 0.0
             usage_dict["cache_read_input_token_cost"] = 0.0
             
+        # Sanitize None values for integer fields (some providers omit them)
+        for key in ("audio_prompt_tokens", "audio_completion_tokens",
+                    "cached_prompt_tokens", "reasoning_tokens",
+                    "prompt_tokens", "completion_tokens", "total_tokens"):
+            if usage_dict.get(key) is None:
+                usage_dict[key] = 0
+
         return usage_dict
 
-    
+
 
     def _call_chat_api(
         self,
@@ -267,7 +274,8 @@ class LiteLLMInvoker(BaseInvoker):
             content = choice.message.content
 
             if prompt.format is None:
-                raw_logprobs = choice.logprobs.content if choice.logprobs is not None else None
+                _lp = getattr(choice, 'logprobs', None)
+                raw_logprobs = _lp.content if _lp is not None else None
                 if raw_logprobs is not None:
                     converted = []
                     for logprob in raw_logprobs:

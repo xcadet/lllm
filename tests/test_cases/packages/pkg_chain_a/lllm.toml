@@ -1,0 +1,7 @@
+[package]
+name = "pkg_chain_a"
+version = "1.0.0"
+description = "Top of 4-level chain — depends on chain_b (which pulls chain_c, chain_d)"
+
+[dependencies]
+packages = ["../pkg_chain_b"]

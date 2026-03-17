@@ -1,0 +1,7 @@
+[package]
+name = "pkg_diamond_root"
+version = "1.0.0"
+description = "Root of diamond — depends on both left and right (which both depend on shared)"
+
+[dependencies]
+packages = ["../pkg_diamond_left", "../pkg_diamond_right"]

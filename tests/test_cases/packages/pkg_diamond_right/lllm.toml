@@ -1,0 +1,7 @@
+[package]
+name = "pkg_diamond_right"
+version = "1.0.0"
+description = "Right branch of diamond — depends on pkg_diamond_shared"
+
+[dependencies]
+packages = ["../pkg_diamond_shared"]

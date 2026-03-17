@@ -1,0 +1,4 @@
+[package]
+name = "pkg_diamond_shared"
+version = "1.0.0"
+description = "Shared package at the base of the diamond (loaded by both left and right)"
