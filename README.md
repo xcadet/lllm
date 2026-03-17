@@ -51,15 +51,46 @@ pip install lllm-core
 
 ## Quick Start
 
-### Basic Chat
+No configuration needed. Set your API key and run:
 
-TODO
+```bash
+pip install lllm-core
+export OPENAI_API_KEY=sk-...   # or ANTHROPIC_API_KEY, etc.
+```
+
+```python
+from lllm import Tactic
+
+agent = Tactic.quick("You are a helpful assistant.", model="gpt-4o")
+agent.open("chat")
+agent.receive("What is the capital of France?")
+print(agent.respond().content)
+```
+
+That's it — no `lllm.toml`, no folder structure, no subclassing.
+
+**Supported providers** (via [LiteLLM](https://github.com/BerriAI/litellm)):
+- OpenAI: `model="gpt-4o"` + `OPENAI_API_KEY`
+- Anthropic: `model="claude-opus-4-6"` + `ANTHROPIC_API_KEY`
+- Any other LiteLLM-supported provider
+
+### Growing your project
+
+As your project grows, you can gradually introduce structure:
+
+1. **Add a config file** — copy `lllm.toml.example` to `lllm.toml` and point it at your prompt/proxy folders
+2. **Move prompts to files** — put `.md` files under a `prompts/` folder; they auto-register via discovery
+3. **Define agents in YAML** — use `AgentSpec` configs for multi-agent tactics
+4. **Subclass `Tactic`** — implement `call()` to orchestrate multiple agents
+
+See `examples/` for concrete patterns at each stage.
 
 ## Examples
 
 Check `examples/` for more usage scenarios:
 
-TODO
+- [`basic_chat.py`](examples/basic_chat.py) — minimal single-agent chat (no config)
+- [`examples/autodiscovery/`](examples/autodiscovery/) — prompts and proxies auto-discovered via `lllm.toml`
 
 ### Proxies & Tools
 
@@ -132,7 +163,7 @@ pytest tests/
   - [x] Stable `pkg::name` tactic identity independent of file layout and aliases
   - [x] `ColoredFormatter` and `setup_logging` for terminal output
   - [x] Convenience factories: `local_store`, `sqlite_store`, `noop_store`
-- [ ] Fast mode, 5-line code to build a simple system with no configuration.
+- [x] Fast mode, 5-line code to build a simple system with no configuration.
 
 
 ## TODOs
