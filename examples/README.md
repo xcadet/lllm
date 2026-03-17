@@ -107,6 +107,18 @@ Covers: `tactic.bcall(tasks, max_workers=N)` for ordered blocking batch, `fail_f
 
 ---
 
+### [`advanced/proxy_interpreter.py`](advanced/proxy_interpreter.py)
+
+Agent with a proxy-backed `run_python` tool for multi-step data analysis.
+
+```bash
+python examples/advanced/proxy_interpreter.py
+```
+
+Covers: defining an inline `@ProxyRegistrator` proxy, configuring `exec_env: interpreter` per agent, agent calling `run_python` with `CALL_API`, variable state persisting across calls, `query_api_doc` for on-demand endpoint lookup.
+
+---
+
 ## Full package example — Code Review Service
 
 [`code_review_service/`](code_review_service/) is a complete LLLM **package** — the kind of structure you would use for a real project. It wraps a two-agent review pipeline as a FastAPI HTTP service.
@@ -154,6 +166,7 @@ See [`code_review_service/README.md`](code_review_service/README.md) for full do
 | Custom `Tactic` subclass | `advanced/multi_agent_tactic.py` |
 | Session persistence + querying | `advanced/session_logging.py` |
 | Batch + async concurrent execution | `advanced/batch_processing.py` |
+| Proxy config + `run_python` tool + state persistence | `advanced/proxy_interpreter.py` |
 | `lllm.toml` package structure | `code_review_service/` |
 | Prompt files auto-discovered from disk | `code_review_service/prompts/` |
 | YAML config with `base:` inheritance | `code_review_service/configs/` |

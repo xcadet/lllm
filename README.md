@@ -114,6 +114,7 @@ See [`examples/README.md`](examples/README.md) for the full index. A quick map:
 | [`multi_agent_tactic.py`](examples/advanced/multi_agent_tactic.py) | Custom `Tactic` subclass, two-agent pipeline |
 | [`session_logging.py`](examples/advanced/session_logging.py) | SQLite `LogStore`, session querying |
 | [`batch_processing.py`](examples/advanced/batch_processing.py) | `bcall()`, `ccall()` concurrent execution |
+| [`proxy_interpreter.py`](examples/advanced/proxy_interpreter.py) | `proxy` config, `run_python` tool, state-persistent `AgentInterpreter` |
 
 **Full package example** — [`examples/code_review_service/`](examples/code_review_service/):
 
@@ -138,6 +139,20 @@ This mirrors how prompts are auto-registered via `[prompts]` in `lllm.toml`.
 
 Once proxies are loaded you can check what is available by calling `Proxy().available()`.
 
+**Agent-level proxy tool injection** — add a `proxy:` block to an agent's config and LLLM automatically injects `run_python` and `query_api_doc` tools plus an API directory block into the system prompt:
+
+```yaml
+agent_configs:
+  - name: analyst
+    proxy:
+      activate_proxies: [fmp]
+      exec_env: interpreter   # "interpreter" (default) | "jupyter" | null
+      max_output_chars: 5000
+      timeout: 60.0
+```
+
+The agent then calls `run_python(code)` with Python that uses `CALL_API(endpoint, params)`. Variables persist across calls within the same session. See [`advanced/proxy_interpreter.py`](examples/advanced/proxy_interpreter.py) for a runnable example and [Proxies & Sandbox](https://lllm.one/core/proxy-and-sandbox/) for the full reference.
+
 ### Auto-Discovery Config
 
 A starter `lllm.toml.example` lives in the repo root. Copy it next to your project entry point and edit the folder paths:
@@ -147,10 +162,6 @@ cp lllm.toml.example lllm.toml
 ```
 
 The sample configuration points to `examples/autodiscovery/prompts/` and `examples/autodiscovery/proxies/`, giving you a working prompt (`examples/hello_world`) and proxy (`examples/sample`) to experiment with immediately.
-
-## Testing & Offline Mocks
-
-TODO 
 
 ## Testing
 
@@ -203,14 +214,14 @@ pytest tests/
 
 ## WIP V0.1.1
 
-- [ ] Proxy-based tool-calling, mini in-dialog interpreter (proxies/)
+- [x] Proxy-based tool-calling, mini in-dialog interpreter (proxies/)
+- [ ] Default Context Manager for prune over-size dialogs
+- [ ] Support skills in agent config, see https://agentskills.io
 
 
 ## TODOs
 
 - [ ] Analysis tools based on the logging system, e.g., cost analysis, dialog analysis, etc. Basically, a GUI for the logging DB, and exporting an app with default dashboards using like Streamlit, Dash, Panel, etc.
-- [ ] Support skills in agent config, see https://agentskills.io
-- [ ] Default Context Manager for prune over-size dialogs
 - [ ] Better sandbox, e.g., browser sandbox, code sandbox, etc. maybe use sandbox wheels like OpenSandbox (sandbox/)
 - [ ] Tactics, Prompts, Proxies, Configs, etc. sharing system.
 
