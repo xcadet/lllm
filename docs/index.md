@@ -56,21 +56,21 @@ No `lllm.toml`, no folder structure, no subclassing. [Full quick start →](gett
 
     [:octicons-arrow-right-24: Package System](architecture/packages.md)
 
--   :material-hammer-wrench:{ .lg .middle } **4 · Build a Full Package**
+-   :material-school:{ .lg .middle } **4 · Tutorials (8 lessons)**
 
     ---
 
-    Step-by-step tutorial: single agent → structured output → tools → full package → logging.
+    From a one-liner chat to a production multi-agent system — step by step, no prior LLLM knowledge required.
 
-    [:octicons-arrow-right-24: Tutorial](guides/building-agents.md)
+    [:octicons-arrow-right-24: Start Lesson 1](tutorials/01-quick-start.md) · [:octicons-arrow-right-24: All lessons](tutorials/index.md)
 
--   :material-tune:{ .lg .middle } **5 · Advanced Customization**
+-   :material-tune:{ .lg .middle } **5 · Advanced Patterns**
 
     ---
 
-    Custom invokers, log backends, and proxy tools — the deep extension points.
+    Proxies, custom invokers, log backends, batch processing, streaming, and image input.
 
-    [:octicons-arrow-right-24: Invokers](core/invokers.md) · [:octicons-arrow-right-24: Logging](core/logging.md) · [:octicons-arrow-right-24: Proxy](core/proxy-and-sandbox.md)
+    [:octicons-arrow-right-24: Advanced Patterns](tutorials/08-advanced-patterns.md) · [:octicons-arrow-right-24: Logging](tutorials/07-logging.md)
 
 -   :material-code-tags:{ .lg .middle } **API Reference**
 

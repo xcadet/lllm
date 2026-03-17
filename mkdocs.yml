@@ -10,7 +10,7 @@ theme:
   favicon: assets/logo.png
   features:
     - navigation.sections
-    - navigation.expand
+    - navigation.indexes
     - content.code.copy
   palette:
     - scheme: default
@@ -34,8 +34,6 @@ nav:
   - Architecture:
     - Overview: architecture/overview.md
     - Package System: architecture/packages.md
-  - Tutorial:
-    - Build a Full Package: guides/building-agents.md
   - Core Reference:
     - Agent: core/agent.md
     - Prompts: core/prompts.md
@@ -47,7 +45,19 @@ nav:
     - Logging: core/logging.md
     - Proxy & Tools: core/proxy-and-sandbox.md
     - Runtime: core/runtime.md
-  - Project Reference: guides/project-template.md
+  - Project Reference: 
+    - Building a Full Package: guides/building-agents.md
+    - Project Structure: guides/project-template.md
+  - Tutorials:
+    - Overview: tutorials/index.md
+    - "1. Quick Start": tutorials/01-quick-start.md
+    - "2. Agents and Dialogs": tutorials/02-agents-and-dialogs.md
+    - "3. Prompts and Structured Output": tutorials/03-prompts.md
+    - "4. Tools": tutorials/04-tools.md
+    - "5. Tactics": tutorials/05-tactics.md
+    - "6. Config and Discovery": tutorials/06-config-and-discovery.md
+    - "7. Logging and Cost Tracking": tutorials/07-logging.md
+    - "8. Advanced Patterns": tutorials/08-advanced-patterns.md
   - API Reference:
     - Core API: reference/core.md
     - Logging API: reference/logging.md
