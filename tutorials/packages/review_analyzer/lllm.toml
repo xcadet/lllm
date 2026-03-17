@@ -1,0 +1,8 @@
+[package]
+name = "review_analyzer"
+version = "0.1.0"
+description = "A minimal lllm package that analyzes product reviews."
+
+[agents]
+analyzer = { model = "gpt-4o-mini", system = "prompts/analyzer.txt" }
+summarizer = { model = "gpt-4o-mini", system = "prompts/summarizer.txt" }

@@ -94,6 +94,18 @@ As your project grows, you can gradually introduce structure:
 
 See `examples/` for concrete patterns at each stage.
 
+## Tutorials
+
+Step-by-step Jupyter notebooks in [`tutorials/`](tutorials/) that walk through the full framework from first principles to production patterns:
+
+| Notebook | Level | Topics |
+|----------|-------|--------|
+| [`01_getting_started.ipynb`](tutorials/01_getting_started.ipynb) | Beginner | `Tactic.quick()`, `Agent`, three-step dialog pattern, multi-turn conversations, dialog forking, `Prompt` templates, `DefaultTagParser`, Pydantic structured output, context management |
+| [`02_tactics_and_agentic_systems.ipynb`](tutorials/02_tactics_and_agentic_systems.ipynb) | Intermediate | `Tactic` subclassing, multi-agent pipelines, sub-tactic composition, `TacticCallSession`, `bcall`/`acall`/`ccall`, `LogStore`, session tagging, cost aggregation |
+| [`03_advanced_features.ipynb`](tutorials/03_advanced_features.ipynb) | Advanced | `@tool` deep-dive, MCP servers, proxy system, interpreter mode, Jupyter sandbox, `lllm.toml` packages, Skills, named runtimes, streaming, image input, custom handlers |
+
+Each notebook is self-contained and includes environment setup instructions at the top. Helper utilities and a sample package live in [`tutorials/helpers/`](tutorials/helpers/) and [`tutorials/packages/`](tutorials/packages/).
+
 ## Examples
 
 See [`examples/README.md`](examples/README.md) for the full index. A quick map:
