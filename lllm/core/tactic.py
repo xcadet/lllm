@@ -338,11 +338,20 @@ class Tactic(ABC):
     def _execute(
         self,
         task: Union[str, BaseModel],
+        session_name: Optional[str] = None,
         return_session: bool = False,
         tags: Optional[Dict[str, str]] = None,
         metadata: Optional[Dict[str, Any]] = None,
         **kwargs,
     ) -> Union[str, BaseModel, TacticCallSession]:
+        if session_name is None:
+            task_str = task if isinstance(task, str) else task.model_dump_json()
+            task_hash = hashlib.md5(task_str.encode()).hexdigest()[:8]
+            session_name = (
+                f"{self.name}_{task_hash}"
+                f"_{dt.datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            )
+
         ctx = copy.copy(self)
         ctx._sub_tactics = dict(self._sub_tactics)
         session = TacticCallSession(tactic_name=self.name)
@@ -355,7 +364,7 @@ class Tactic(ABC):
             for n, agent in raw_agents.items()
         }
 
-        logger.info("Tactic '%s' started", self.name)
+        logger.info("Tactic '%s' started — session_name=%s", self.name, session_name)
         try:
             result = ctx.call(task, **kwargs)
             session.success(result)
@@ -396,8 +405,8 @@ class Tactic(ABC):
 
         return session if return_session else result
 
-    def __call__(self, task, return_session=False, tags=None, metadata=None, **kwargs):
-        return self._execute(task, return_session, tags=tags, metadata=metadata, **kwargs)
+    def __call__(self, task, session_name=None, return_session=False, tags=None, metadata=None, **kwargs):
+        return self._execute(task, session_name, return_session, tags=tags, metadata=metadata, **kwargs)
 
     async def acall(self, task, return_session=False, tags=None, metadata=None, **kwargs):
         loop = asyncio.get_running_loop()
