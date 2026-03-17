@@ -218,14 +218,13 @@ pytest tests/
 - [x] Default Context Manager for prune over-size dialogs
 - [x] Support skills in agent config, see https://agentskills.io
 
-
 ## TODOs
 
-- [ ] Analysis tools based on the logging system, e.g., cost analysis, dialog analysis, etc. Basically, a GUI for the logging DB, and exporting an app with default dashboards using like Streamlit, Dash, Panel, etc.
 - [ ] Tactics, Prompts, Proxies, Configs, etc. sharing system.
 
 ## Optional
-- [ ] Better sandbox, e.g., browser sandbox, code sandbox, etc. maybe use sandbox wheels like OpenSandbox (sandbox/) Or maybe do not include it in the core package, as it can work externally.
+- [ ] Add-on: Analysis tools based on the logging system, e.g., cost analysis, dialog analysis, etc. Basically, a GUI for the logging DB, and exporting an app with default dashboards using like Streamlit, Dash, Panel, etc.
+- [ ] Add-on: Advanced sandbox, e.g., browser sandbox, code sandbox, etc. maybe use sandbox wheels like OpenSandbox (sandbox/) Or maybe do not include it in the core package, as it can work externally.
 - [ ] Maybe use Mintlify for documentation
 
 ## Future Roadmap
