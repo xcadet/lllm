@@ -133,10 +133,11 @@ pytest tests/
 ## TODOs
 
 - [ ] Proxy-based tool-calling, mini in-dialog interpreter (proxies/)
+- [ ] Analysis tools based on the logging system, e.g., cost analysis, dialog analysis, etc. Basically, a GUI for the logging DB, and exporting an app with default dashboards using like Streamlit, Dash, Panel, etc.
 - [ ] Support skills in agent config, see https://agentskills.io
 - [ ] Default Context Manager for prune over-size dialogs
 - [ ] Better sandbox, e.g., browser sandbox, code sandbox, etc. maybe use sandbox wheels (sandbox/)
-- [ ] Shareable Tactics, Prompts, Proxies, Configs, etc.
+- [ ] Tactics, Prompts, Proxies, Configs, etc. sharing system.
 
 
 ## Future Roadmap

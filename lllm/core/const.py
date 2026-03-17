@@ -1,12 +1,77 @@
-from enum import Enum
-from pydantic import BaseModel
-import logging
-logging.basicConfig(level=logging.INFO)
+from __future__ import annotations
 
-class RCollections(str, Enum):
-    DIALOGS = 'dialogs'
-    FRONTEND = 'frontend'
-    MESSAGES = 'messages'
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from enum import Enum
+
+from pydantic import BaseModel
+from dataclasses import dataclass, field
+
+if TYPE_CHECKING:
+    from lllm.core.dialog import Message
+
+
+@dataclass
+class InvokeResult:
+    """
+    Per-invocation diagnostics and the message returned by an invoker.
+
+    Attributes:
+        raw_response:    The raw API response object (completion, response, etc.).
+        model_args:      The actual model args sent to the API (after merging).
+        execution_errors: Parse/validation errors encountered during this invocation.
+        message: The message object returned by the invoker.
+    """
+    raw_response: Any = None
+    model_args: Dict[str, Any] = field(default_factory=dict)
+    execution_errors: List[Exception] = field(default_factory=list)
+    message: Optional[Message] = None  # always set by invoker, None is just the dataclass default
+
+    @property
+    def has_errors(self) -> bool:
+        return len(self.execution_errors) > 0
+
+    @property
+    def cost(self) -> InvokeCost:
+        return self.message.cost if self.message else InvokeCost()
+
+    @property
+    def error_message(self) -> str:
+        return '\n'.join(str(e) for e in self.execution_errors)
+
+
+class FunctionCall(BaseModel):
+    """One invocation of a tool, including its result once executed."""
+
+    id: str
+    name: str
+    arguments: Dict[str, Any]
+    result: Any = None
+    result_str: Optional[str] = None
+    error_message: Optional[str] = None
+
+    @property
+    def success(self):
+        return self.error_message is None and self.result_str is not None
+
+    def __str__(self):
+        _str = f'Calling function: {self.name} with arguments: {self.arguments}\n'
+        if self.success:
+            _str += f'Return:\n---\n{self.result_str}\n---\n'
+        return _str
+
+    def equals(self, other: FunctionCall) -> bool:
+        if self.name != other.name:
+            return False
+        if set(self.arguments.keys()) != set(other.arguments.keys()):
+            return False
+        for k, v in self.arguments.items():
+            if other.arguments[k] != v:
+                return False
+        return True
+
+    def is_repeated(self, function_calls: List[FunctionCall]) -> bool:
+        return any(self.equals(fc) for fc in function_calls)
+
 
 class ParseError(Exception):
     def __init__(self, message: str, detail: str = ""):
@@ -52,12 +117,12 @@ class InvokeCost(BaseModel):
     reasoning_tokens: int = 0
     audio_prompt_tokens: int = 0
     audio_completion_tokens: int = 0
-    
+
     # Rates (USD per token, recorded at invocation time)
     input_cost_per_token: float = 0.0
     output_cost_per_token: float = 0.0
     cache_read_input_token_cost: float = 0.0
-    
+
     # Calculated Dollar Costs
     prompt_cost: float = 0.0
     completion_cost: float = 0.0
@@ -68,7 +133,7 @@ class InvokeCost(BaseModel):
         if self.input_cost_per_token: rates.append(f"In: ${self.input_cost_per_token:.7f}/tok")
         if self.output_cost_per_token: rates.append(f"Out: ${self.output_cost_per_token:.7f}/tok")
         rates_str = f" | Rates: [{', '.join(rates)}]" if rates else ""
-        
+
         return (f"Tokens: {self.total_tokens} (Prompt: {self.prompt_tokens} "
                 f"[Cached: {self.cached_prompt_tokens}], "
                 f"Completion: {self.completion_tokens} "
@@ -95,4 +160,3 @@ class InvokeCost(BaseModel):
             completion_cost=self.completion_cost + other.completion_cost,
             cost=self.cost + other.cost,
         )
-    

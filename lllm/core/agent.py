@@ -6,7 +6,6 @@ from dataclasses import dataclass, field
 from lllm.core.prompt import Prompt, AgentException, AgentCallSession
 from lllm.core.const import Roles, APITypes
 from lllm.core.dialog import Dialog, Message
-from lllm.logging import ReplayableLogBase
 from lllm.invokers.base import BaseInvoker, BaseStreamHandler
 import lllm.utils as U
 
@@ -47,7 +46,7 @@ class Agent:
     model: str # the model identifier (e.g., 'gpt-4o'), by default, it from litellm model list (https://models.litellm.ai/)
     llm_invoker: BaseInvoker
     stream_handler: Optional[BaseStreamHandler] = None
-    log_base: Optional[ReplayableLogBase] = None
+
     api_type: APITypes = APITypes.COMPLETION
     model_args: Dict[str, Any] = field(default_factory=dict) # additional args, like temperature, seed, etc.
     max_exception_retry: int = 3
@@ -76,7 +75,6 @@ class Agent:
         prompt_args = dict(prompt_args) if prompt_args else {}
         dialog = Dialog(
             session_name=session_name or f"{self.name}_{alias}",
-            log_base=self.log_base,
             owner=self.name,
         )
         dialog.put_prompt(
@@ -365,6 +363,6 @@ class Agent:
             else: # the response is not a function call, it is the final response
                 session.success(invoke_result.message)
                 return session
-        session.failure(self.log_base)
+        session.failure()
         raise ValueError(f'Failed to call the agent: {session}')
 

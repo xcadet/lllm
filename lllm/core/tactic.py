@@ -23,7 +23,8 @@ import hashlib
 import datetime as dt
 import asyncio
 import concurrent.futures
-from dataclasses import dataclass, field
+import traceback as tb
+import warnings
 from typing import (
     Any,
     AsyncGenerator,
@@ -44,11 +45,10 @@ from lllm.core.dialog import Message
 from lllm.core.runtime import Runtime, get_default_runtime
 from lllm.core.const import APITypes
 from lllm.core.config import AgentSpec, parse_agent_configs
-from lllm.logging import PrintSystem, StreamWrapper, build_log_base
+from lllm.logging import LogStore
 from lllm.invokers import build_invoker
 
 logger = logging.getLogger(__name__)
-
 
 
 # ---------------------------------------------------------------------------
@@ -126,6 +126,7 @@ class TacticCallSession(BaseModel):
 
     delivery: Optional[Any] = None
     error: Optional[str] = None
+    error_traceback: Optional[str] = None  # full traceback when state == "failure"
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -147,6 +148,7 @@ class TacticCallSession(BaseModel):
         self.state = "failure"
         if error is not None:
             self.error = f"{type(error).__name__}: {error}"
+            self.error_traceback = tb.format_exc()
 
     @property
     def agent_cost(self) -> InvokeCost:
@@ -216,7 +218,7 @@ def get_tactic_class(name, runtime=None):
 def build_tactic(
     config: Dict[str, Any],
     ckpt_dir: str,
-    stream=None,
+    log_store: Optional[LogStore] = None,
     name: str = None,
     runtime: Runtime = None,
     **kwargs,
@@ -231,7 +233,7 @@ def build_tactic(
         name = config.get("tactic_type")
     name = _normalize_name(name)
     tactic_cls = get_tactic_class(name, runtime)
-    return tactic_cls(config, ckpt_dir, stream, runtime=runtime, **kwargs)
+    return tactic_cls(config, ckpt_dir, log_store=log_store, runtime=runtime, **kwargs)
 
 
 # ---------------------------------------------------------------------------
@@ -281,7 +283,7 @@ class Tactic(ABC):
         self,
         config: Dict[str, Any],
         ckpt_dir: str,
-        stream=None,
+        log_store: Optional[LogStore] = None,
         runtime: Optional[Runtime] = None,
     ):
         self._runtime = runtime or get_default_runtime()
@@ -289,10 +291,8 @@ class Tactic(ABC):
 
         self.config = config
         self.ckpt_dir = ckpt_dir
-        self._stream = stream or PrintSystem()
-        self._stream_backup = self._stream
-        self.st = None
-        self._log_base = build_log_base(config)
+        self._log_store: Optional[LogStore] = log_store
+        self._log_store_warned: bool = False
         self.llm_invoker = build_invoker(config)
 
         # Parse agent specs from the new config format
@@ -325,7 +325,7 @@ class Tactic(ABC):
 
     def _create_fresh_agents(self) -> Dict[str, Agent]:
         return {
-            agent_name: spec.build(self._runtime, self.llm_invoker, self._log_base)
+            agent_name: spec.build(self._runtime, self.llm_invoker)
             for agent_name, spec in self._agent_specs.items()
         }
 
@@ -338,18 +338,11 @@ class Tactic(ABC):
     def _execute(
         self,
         task: Union[str, BaseModel],
-        session_name: str = None,
         return_session: bool = False,
+        tags: Optional[Dict[str, str]] = None,
+        metadata: Optional[Dict[str, Any]] = None,
         **kwargs,
     ) -> Union[str, BaseModel, TacticCallSession]:
-        if session_name is None:
-            task_str = task if isinstance(task, str) else task.model_dump_json()
-            task_hash = hashlib.md5(task_str.encode()).hexdigest()[:8]
-            session_name = (
-                f"{self.name}_{task_hash}"
-                f"_{dt.datetime.now().strftime('%Y%m%d_%H%M%S')}"
-            )
-
         ctx = copy.copy(self)
         ctx._sub_tactics = dict(self._sub_tactics)
         session = TacticCallSession(tactic_name=self.name)
@@ -362,60 +355,76 @@ class Tactic(ABC):
             for n, agent in raw_agents.items()
         }
 
-        ctx.set_st(session_name)
+        logger.info("Tactic '%s' started", self.name)
         try:
             result = ctx.call(task, **kwargs)
             session.success(result)
+            logger.info(
+                "Tactic '%s' completed — cost=%s agent_calls=%d",
+                self.name,
+                session.total_cost.cost,
+                session.agent_call_count,
+            )
         except Exception as e:
             session.failure(e)
+            logger.error(
+                "Tactic '%s' failed: %s",
+                self.name, e, exc_info=True,
+            )
             raise
         finally:
-            ctx.restore_st()
+            if self._log_store is not None:
+                try:
+                    saved_id = self._log_store.save_session(
+                        session, tags=tags, metadata=metadata
+                    )
+                    logger.debug("Session persisted — id=%s", saved_id)
+                except Exception:
+                    logger.warning(
+                        "LogStore failed to save session for tactic '%s'",
+                        self.name, exc_info=True,
+                    )
+            elif not self._log_store_warned:
+                self._log_store_warned = True
+                warnings.warn(
+                    f"No LogStore configured for tactic '{self.name}'. "
+                    "Session data will not be persisted. "
+                    "Pass a LogStore instance via the log_store parameter.",
+                    UserWarning,
+                    stacklevel=3,
+                )
 
         return session if return_session else result
 
-    def __call__(self, task, session_name=None, return_session=False, **kwargs):
-        return self._execute(task, session_name, return_session, **kwargs)
+    def __call__(self, task, return_session=False, tags=None, metadata=None, **kwargs):
+        return self._execute(task, return_session, tags=tags, metadata=metadata, **kwargs)
 
-    async def acall(self, task, return_session=False, **kwargs):
+    async def acall(self, task, return_session=False, tags=None, metadata=None, **kwargs):
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
-            None, lambda: self._execute(task, return_session=return_session, **kwargs),
+            None,
+            lambda: self._execute(task, return_session=return_session, tags=tags, metadata=metadata, **kwargs),
         )
 
-    def bcall(self, tasks, return_sessions=False, max_workers=None, **kwargs):
+    def bcall(self, tasks, return_sessions=False, max_workers=None, tags=None, metadata=None, **kwargs):
         workers = max_workers or self._max_workers
         with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
             futures = [
-                pool.submit(self._execute, t, None, return_sessions, **kwargs)
+                pool.submit(self._execute, t, None, return_sessions, tags, metadata, **kwargs)
                 for t in tasks
             ]
             return [f.result() for f in futures]
 
-    async def ccall(self, tasks, return_sessions=False, max_workers=None, **kwargs):
+    async def ccall(self, tasks, return_sessions=False, max_workers=None, tags=None, metadata=None, **kwargs):
         workers = max_workers or self._max_workers
         loop = asyncio.get_running_loop()
         with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
             def _run(idx, t):
-                return idx, self._execute(t, return_session=return_sessions, **kwargs)
+                return idx, self._execute(t, return_session=return_sessions, tags=tags, metadata=metadata, **kwargs)
             futures = [loop.run_in_executor(pool, _run, i, t) for i, t in enumerate(tasks)]
             for coro in asyncio.as_completed(futures):
                 idx, result = await coro
                 yield idx, result
-
-    # -- Session helpers --------------------------------------------------
-
-    def set_st(self, session_name: str) -> None:
-        self.st = StreamWrapper(self._stream, self._log_base, session_name)
-
-    def restore_st(self) -> None:
-        self.st = None
-
-    def silent(self) -> None:
-        self._stream = PrintSystem(silent=True)
-
-    def restore(self) -> None:
-        self._stream = self._stream_backup
 
     # -- Quick constructor ------------------------------------------------
 

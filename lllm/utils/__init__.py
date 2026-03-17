@@ -8,8 +8,7 @@ from itertools import islice
 import requests
 import json
 import hashlib
-from lllm.core.const import RCollections, ParseError
-from tqdm import tqdm
+from lllm.core.const import ParseError
 from filelock import FileLock
 from typing import Dict, Any
 
@@ -39,15 +38,6 @@ def save_json(file,data,indent=4):
     with open(file, 'w', encoding='utf-8') as f:
         json.dump(data, f, indent=indent)
 
-
-def cprint(text, color='g'):
-    colors = {
-        'w': '\033[97m',
-        'g': '\033[92m',
-        'y': '\033[93m',
-        'r': '\033[91m',
-    }
-    print(f"{colors.get(color, '')}{text}\033[0m")
 
 def html_collapse(summary: str, content: str):
     return f'''

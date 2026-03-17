@@ -17,23 +17,26 @@ from typing import (
     get_type_hints,
 )
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator
 
 from lllm.core.const import (
     APITypes,
     InvokeCost,
+    InvokeResult,
     Invokers,
     Modalities,
     ParseError,
+    FunctionCall,
     Roles,
 )
-from lllm.invokers.base import InvokeResult
 from lllm.core.dialog import Message
 from lllm.core.runtime import Runtime, get_default_runtime
-from lllm.logging import LogBase
 import lllm.utils as U
+import logging as _logging
 
 from abc import ABC, abstractmethod
+
+_logger = _logging.getLogger(__name__)
 
 
 
@@ -93,40 +96,50 @@ class AgentCallSession(BaseModel):
         self.invoke_traces[interrupt_step].append(invoke_result)
 
     def exception(self, exception: Exception, interrupt_step: int) -> None:
-        U.cprint(f'{self.agent_name} is handling an exception {exception}, retry times: {self.exception_retries_count}/{self.max_exception_retry}','r')
+        _logger.warning(
+            "[%s] Handling exception (retry %d/%d): %s",
+            self.agent_name, self.exception_retries_count, self.max_exception_retry, exception,
+        )
         if interrupt_step not in self.exception_retries:
             self.exception_retries[interrupt_step] = []
         self.exception_retries[interrupt_step].append(exception)
         self.state = "exception"
-    
+
     def interrupt(self, function_calls: List[FunctionCall], interrupt_step: int) -> None:
         fc_names = [fc.name for fc in function_calls]
-        U.cprint(f'{self.agent_name} is calling functions {fc_names}, interrupt times: {interrupt_step+1}/{self.max_interrupt_steps}','y')
+        _logger.debug(
+            "[%s] Tool calls at step %d/%d: %s",
+            self.agent_name, interrupt_step + 1, self.max_interrupt_steps, fc_names,
+        )
         for fc in function_calls:
-            U.cprint(f'{self.agent_name} is calling function {fc.name} with arguments {fc.arguments}','y')
-
+            _logger.debug(
+                "[%s] Calling %s with args: %s", self.agent_name, fc.name, fc.arguments,
+            )
         if interrupt_step not in self.interrupts:
             self.interrupts[interrupt_step] = []
         self.interrupts[interrupt_step].append(function_calls)
         self.state = "interrupt"
-    
+
     def llm_recall(self, exception: Exception, interrupt_step: int) -> None:
+        _logger.warning(
+            "[%s] LLM recall at step %d: %s", self.agent_name, interrupt_step, exception,
+        )
         if interrupt_step not in self.llm_recalls:
             self.llm_recalls[interrupt_step] = []
         self.llm_recalls[interrupt_step].append(exception)
         self.state = "llm_recall"
 
     def success(self, message: Message) -> None:
-        U.cprint(f'{self.agent_name} stopped calling functions, total interrupt times: {self.max_interrupt_steps}','y')
+        _logger.debug(
+            "[%s] Agent call succeeded after %d interrupt steps",
+            self.agent_name, len(self.interrupts),
+        )
         self.state = "success"
         self.delivery = message
 
-    def failure(self, log_base: Optional[LogBase] = None) -> None:
-        U.cprint(f'{self.agent_name} failed to complete the agent call','r')
+    def failure(self) -> None:
+        _logger.error("[%s] Agent call failed", self.agent_name)
         self.state = "failure"
-
-        if log_base is not None:
-            log_base.log_error(f'{self.agent_name} failed to complete the agent call')
 
     @property
     def cost(self) -> InvokeCost:
@@ -140,40 +153,6 @@ class AgentCallSession(BaseModel):
 # ---------------------------------------------------------------------------
 # Tools
 # ---------------------------------------------------------------------------
-
-
-class FunctionCall(BaseModel):
-    """One invocation of a tool, including its result once executed."""
-
-    id: str
-    name: str
-    arguments: Dict[str, Any]
-    result: Any = None
-    result_str: Optional[str] = None
-    error_message: Optional[str] = None
-
-    @property
-    def success(self):
-        return self.error_message is None and self.result_str is not None
-
-    def __str__(self):
-        _str = f'Calling function: {self.name} with arguments: {self.arguments}\n'
-        if self.success:
-            _str += f'Return:\n---\n{self.result_str}\n---\n'
-        return _str
-
-    def equals(self, other: 'FunctionCall') -> bool:
-        if self.name != other.name:
-            return False
-        if set(self.arguments.keys()) != set(other.arguments.keys()):
-            return False
-        for k, v in self.arguments.items():
-            if other.arguments[k] != v:
-                return False
-        return True
-
-    def is_repeated(self, function_calls: List['FunctionCall']) -> bool:
-        return any(self.equals(fc) for fc in function_calls)
 
 
 # Type mapping for the @tool decorator's auto-inference
@@ -657,13 +636,12 @@ class Prompt(BaseModel):
     # -- Rendering --------------------------------------------------------
     renderer: BaseRenderer = Field(default_factory=StringFormatterRenderer)
 
-    # -- Internal (populated in model_post_init) --------------------------
-    _functions: Dict[str, Function] = Field(default_factory=dict, init=False)
-    _mcp_servers: Dict[str, MCP] = Field(default_factory=dict, init=False)
-
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
-    _template_vars: set[str] = Field(default_factory=set, init=False)
+    # -- Internal (populated in model_post_init) --------------------------
+    _functions: Dict[str, Function] = PrivateAttr(default_factory=dict)
+    _mcp_servers: Dict[str, MCP] = PrivateAttr(default_factory=dict)
+    _template_vars: set = PrivateAttr(default_factory=set)
 
     def model_post_init(self, __context):
         self._functions = {f.name: f for f in self.function_list}

@@ -4,6 +4,7 @@ import subprocess
 import time
 import re
 import json
+import logging
 from dataclasses import dataclass, field
 from typing import Dict, Any, Optional, List
 import nbformat # For interacting with .ipynb files
@@ -15,6 +16,8 @@ import requests
 from enum import Enum
 import lllm.utils as U
 import atexit
+
+logger = logging.getLogger(__name__)
 
 
 class JupyterCellType(str, Enum):
@@ -44,13 +47,6 @@ class JupyterSession:
     kernel_manager: Optional[KernelManager] = field(default=None, init=False, repr=False)
     kernel_client: Optional[BlockingKernelClient] = field(default=None, init=False, repr=False)
     last_stop_index: int = 0 # if error, reset it
-    _verbose: bool = False
-
-    def silence(self):
-        self._verbose = False
-
-    def verbose(self):
-        self._verbose = True
 
     def __post_init__(self):
         self.init_session()
@@ -125,15 +121,13 @@ CALL_API = proxy.__call__'''
 
     def _read_notebook_object(self) -> Optional[nbformat.NotebookNode]:
         if not self.notebook_file or not U.pexists(self.notebook_file):
-            # print(f"Notebook file {self.notebook_file} does not exist for reading.")
-            return nbformat.v4.new_notebook() # Return empty notebook if file missing
+            return nbformat.v4.new_notebook()
         try:
             with open(self.notebook_file, 'r', encoding='utf-8') as f:
                 return nbformat.read(f, as_version=4)
         except Exception as e:
-            if self._verbose:
-                print(f"Error reading notebook {self.notebook_file}: {e}")
-            return nbformat.v4.new_notebook() # Return empty on error
+            logger.warning("Error reading notebook %s: %s", self.notebook_file, e)
+            return nbformat.v4.new_notebook()
 
     def _read_notebook_cells(self) -> List[nbformat.NotebookNode]:
         nb = self._read_notebook_object()
@@ -164,24 +158,20 @@ CALL_API = proxy.__call__'''
             try:
                 with open(self.notebook_file, 'w', encoding='utf-8') as f:
                     nbformat.write(nb, f)
-                if self._verbose:
-                    print(f"Created empty notebook: {self.notebook_file}")
+                logger.debug("Created empty notebook: %s", self.notebook_file)
             except Exception as e:
-                if self._verbose:
-                    print(f"Error creating notebook file {self.notebook_file}: {e}")
+                logger.error("Error creating notebook file %s: %s", self.notebook_file, e)
                 self.notebook_file = None
 
     def _write_notebook_object(self, nb: nbformat.NotebookNode):
         if not self.notebook_file:
-            if self._verbose:
-                print("Error: Notebook file path is not set. Cannot write.")
+            logger.error("Notebook file path is not set, cannot write")
             return
         try:
             with open(self.notebook_file, 'w', encoding='utf-8') as f:
                 nbformat.write(nb, f)
         except Exception as e:
-            if self._verbose:
-                print(f"Error writing to notebook file {self.notebook_file}: {e}")
+            logger.error("Error writing to notebook file %s: %s", self.notebook_file, e)
             
     def _write_cell(self, content: str, cell_type: JupyterCellType,
                     ensure_exists: bool = True,
@@ -218,8 +208,7 @@ CALL_API = proxy.__call__'''
             nb.cells.append(new_cell)
 
         self._write_notebook_object(nb)
-        if self._verbose:
-            print(f"Modified {cell_type.value} cell in {self.notebook_file}")
+        logger.debug("Modified %s cell in %s", cell_type.value, self.notebook_file)
         return len(nb.cells) - 1
     
     def append_code_cell(self, content: str, ensure_exists: bool = True) -> int:
@@ -246,15 +235,13 @@ CALL_API = proxy.__call__'''
         for cell in to_delete:
             nb.cells.remove(cell)
         self._write_notebook_object(nb)
-        if self._verbose:
-            print(f"Deleted cells at indices {index} from {self.notebook_file}")
+        logger.debug("Deleted cells at indices %s from %s", index, self.notebook_file)
 
 
     # --- Jupyter Server (Web UI) Methods ---
     def launch_server(self, specific_port: Optional[int] = None) -> Optional[str]:
         if self.server_process and self.server_process.poll() is None:
-            if self._verbose:
-                print(f"Server for session '{self.name}' already running. URL: {self.server_url}")
+            logger.debug("Server for session '%s' already running at %s", self.name, self.server_url)
             return self.server_url
 
         self._ensure_notebook_file(create=True)
@@ -264,8 +251,7 @@ CALL_API = proxy.__call__'''
         else:
             command.append('--port-retries=50')
 
-        if self._verbose:
-            print(f"Launching Jupyter server for session '{self.name}' in '{self.dir}'...")
+        logger.debug("Launching Jupyter server for session '%s' in '%s'", self.name, self.dir)
         try:
             self.server_process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding='utf-8', bufsize=1)
             url_pattern = re.compile(r'(http://(127\.0\.0\.1|localhost):(\d+)/\?token=\w+)')
@@ -289,35 +275,29 @@ CALL_API = proxy.__call__'''
                             
                             port_match = re.search(r':(\d+)/', self.server_url)
                             if port_match: self.server_port = int(port_match.group(1))
-                            if self._verbose:
-                                print(f"Jupyter server started. Access URL: {self.server_url}, PID: {self.server_process.pid}")
+                            logger.info("Jupyter server started: %s (PID %s)", self.server_url, self.server_process.pid)
                             return self.server_url
                     elif self.server_process.poll() is not None:
-                        if self._verbose:
-                            print(f"Jupyter server process terminated unexpectedly (exit code: {self.server_process.poll()}).")
+                        logger.error("Jupyter server process terminated unexpectedly (exit code %s)", self.server_process.poll())
                         break
                     time.sleep(0.1)
                 else: time.sleep(0.2)
             
-            if self._verbose:
-                print(f"Error: Could not find Jupyter server URL in stderr within {timeout_seconds}s.")
-            # print("--- Full stderr from server --- \n", stderr_output) # Only print if debugging
+            logger.error("Could not find Jupyter server URL in stderr within %ds", timeout_seconds)
             self.shutdown_server()
             return None
         except FileNotFoundError:
-            if self._verbose:
-                print("Error: 'jupyter' command not found for server.")
+            logger.error("'jupyter' command not found for server")
             self.server_process = None
             return None
         except Exception as e:
-            if self._verbose:
-                print(f"An unexpected error occurred during server launch: {e}")
+            logger.error("Unexpected error during Jupyter server launch: %s", e, exc_info=True)
             if self.server_process: self.shutdown_server()
             return None
 
     def shutdown_server(self):
         if self.server_process and self.server_process.poll() is None:
-            print(f"Shutting down Jupyter server for session '{self.name}' (PID: {self.server_process.pid})...")
+            logger.info("Shutting down Jupyter server for session '%s' (PID %s)", self.name, self.server_process.pid)
             try:
                 self.server_process.terminate()
                 self.server_process.wait(timeout=5)
@@ -326,7 +306,7 @@ CALL_API = proxy.__call__'''
             finally:
                 if self.server_process.stdout: self.server_process.stdout.close()
                 if self.server_process.stderr: self.server_process.stderr.close()
-            print("Jupyter server shut down.")
+            logger.debug("Jupyter server shut down")
         self.server_process, self.server_url, self.server_port = None, None, None
 
     # --- Kernel Interaction Methods ---
@@ -338,8 +318,7 @@ CALL_API = proxy.__call__'''
 
         lock = U.make_file_lock('lllm_jupyter_kernel', timeout=20)
 
-        if self._verbose:
-            print(f"Starting kernel for session '{self.name}'...")
+        logger.debug("Starting kernel for session '%s'", self.name)
         try:
             with lock:
                 self.kernel_manager = KernelManager(kernel_name='python3', env=os.environ)
@@ -348,53 +327,48 @@ CALL_API = proxy.__call__'''
                 self.kernel_client.start_channels()
                 try:
                     self.kernel_client.wait_for_ready(timeout=10)
-                    # time.sleep(0.1)
-                    if self._verbose:
-                        print(f"Kernel started and ready (ID: {self.kernel_manager.kernel_id}).")
-                    self.last_stop_index = 0 # kernel restart, reset it
+                    logger.debug("Kernel started and ready (ID: %s)", self.kernel_manager.kernel_id)
+                    self.last_stop_index = 0
                     return True
                 except RuntimeError:
-                    if self._verbose:
-                        print("Timeout waiting for kernel to become ready."); self.shutdown_kernel(); return False
+                    logger.error("Timeout waiting for kernel to become ready")
+                    self.shutdown_kernel()
+                    return False
         except TimeoutError:
-            if self._verbose:
-                print(f"Failed to acquire lock on lllm_jupyter_kernel, another process may be holding it.")
-                self.shutdown_kernel(); return False
+            logger.error("Failed to acquire lock on lllm_jupyter_kernel")
+            self.shutdown_kernel()
+            return False
         except Exception as e:
-            if self._verbose:
-                print(f"Failed to start kernel: {e}"); self.shutdown_kernel(); return False
+            logger.error("Failed to start kernel: %s", e, exc_info=True)
+            self.shutdown_kernel()
+            return False
 
     def shutdown_kernel(self):
         client_stopped, manager_stopped = False, False
         if self.kernel_client:
             try: self.kernel_client.stop_channels(); client_stopped = True
             except Exception as e:
-                if self._verbose:
-                    print(f"Error stopping client channels: {e}")
+                logger.warning("Error stopping client channels: %s", e)
         if self.kernel_manager and self.kernel_manager.is_alive():
             try: self.kernel_manager.shutdown_kernel(now=True); manager_stopped = True
             except Exception as e:
-                if self._verbose:
-                    print(f"Error shutting down kernel: {e}")
-        elif self.kernel_manager: # Exists but not alive
-            manager_stopped = True # Effectively
-        
+                logger.warning("Error shutting down kernel: %s", e)
+        elif self.kernel_manager:
+            manager_stopped = True
+
         self.kernel_client, self.kernel_manager = None, None
         if client_stopped or manager_stopped:
-            if self._verbose:
-                print("Kernel resources released.")
-        self.last_stop_index = 0 # kernel restart, reset it
+            logger.debug("Kernel resources released")
+        self.last_stop_index = 0
 
     def run_cell(self, index: int, timeout: int = 60) -> bool:
         if not self.start_kernel():
-            if self._verbose:
-                print(f"Cannot run cell {index}: Kernel failed to start.")
+            logger.error("Cannot run cell %d: kernel failed to start", index)
             return False
 
         nb = self._read_notebook_object()
         if not nb or not (0 <= index < len(nb.cells)):
-            if self._verbose:
-                print(f"Error: Cell index {index} out of bounds or notebook not found.")
+            logger.error("Cell index %d out of bounds or notebook not found", index)
             return False
         
         cell_to_run = nb.cells[index]
@@ -447,9 +421,8 @@ CALL_API = proxy.__call__'''
                     pass 
             
             except Exception as e:
-                if self._verbose:
-                    print(f"Error processing iopub message for cell {index}: {e}")
-                stop_iopub_gathering_loop = True # Break on other errors
+                logger.warning("Error processing iopub message for cell %d: %s", index, e)
+                stop_iopub_gathering_loop = True
 
         execution_successful = False
         remaining_timeout_for_shell = max(1, timeout - (time.monotonic() - iopub_loop_start_time))
@@ -458,8 +431,7 @@ CALL_API = proxy.__call__'''
             shell_reply = self.kernel_client.get_shell_msg(timeout=remaining_timeout_for_shell)
             if shell_reply['parent_header'].get('msg_id') == msg_id:
                 status = shell_reply['content']['status']
-                if self._verbose:
-                    print(f"Kernel execution status for cell {index}: {status}") # This is a useful print
+                logger.debug("Kernel execution status for cell %d: %s", index, status)
                 if status == 'ok':
                     cell_to_run.execution_count = shell_reply['content'].get('execution_count')
                     execution_successful = True
@@ -473,35 +445,30 @@ CALL_API = proxy.__call__'''
                         )
                         cell_to_run.outputs.append(err_output)
             else:
-                if self._verbose:
-                    print(f"Warning: Mismatched shell reply for cell {index}.")
+                logger.warning("Mismatched shell reply for cell %d", index)
                 if not any(out.output_type == 'error' for out in cell_to_run.outputs):
                     cell_to_run.outputs.append(nbformat.v4.new_output(output_type='error', ename='ShellReplyError', evalue='Mismatched shell reply ID', traceback=[]))
         
         except queue.Empty:
-            if self._verbose:
-                print(f"Timeout ({remaining_timeout_for_shell:.1f}s) waiting for shell reply for cell {index}.")
-            if not any(out.output_type == 'error' for out in cell_to_run.outputs): # Add error if none present
+            logger.warning("Timeout (%.1fs) waiting for shell reply for cell %d", remaining_timeout_for_shell, index)
+            if not any(out.output_type == 'error' for out in cell_to_run.outputs):
                 cell_to_run.outputs.append(nbformat.v4.new_output(output_type='error', ename='TimeoutError', evalue='Timeout waiting for shell reply', traceback=[]))
         except Exception as e:
-            if self._verbose:
-                print(f"Error getting or processing shell reply for cell {index}: {e}")
+            logger.error("Error getting shell reply for cell %d: %s", index, e)
             if not any(out.output_type == 'error' for out in cell_to_run.outputs):
-                 cell_to_run.outputs.append(nbformat.v4.new_output(output_type='error', ename='ShellError', evalue=str(e), traceback=[]))
+                cell_to_run.outputs.append(nbformat.v4.new_output(output_type='error', ename='ShellError', evalue=str(e), traceback=[]))
 
         self._write_notebook_object(nb) 
         return execution_successful
     
-    def run_all_cells(self, stop_on_error: bool = True, restart: bool = False) -> int: # return the number of successful cells
+    def run_all_cells(self, stop_on_error: bool = True, restart: bool = False) -> int:
         """
         Runs all code cells in the notebook sequentially.
-        Returns True if all executed cells were successful, False otherwise.
+        Returns the index of the first failed cell, or None if all succeeded.
         """
-        if self._verbose:
-            print(f"\n--- Running all code cells for session '{self.name}' ---")
+        logger.debug("Running all code cells for session '%s'", self.name)
         if not self.notebook_file or not U.pexists(self.notebook_file):
-            if self._verbose:
-                print("Notebook file not found. Cannot run cells.")
+            logger.warning("Notebook file not found for session '%s', cannot run cells", self.name)
             return None
             
         nb = self._read_notebook_object()
@@ -515,18 +482,15 @@ CALL_API = proxy.__call__'''
         for i, cell_data in enumerate(nb.cells):
             if i < self.last_stop_index: continue
             if cell_data.cell_type == 'code':
-                if self._verbose:
-                    print(f"\nAttempting to run cell {i}...")
+                logger.debug("Running cell %d in session '%s'", i, self.name)
                 success = self.run_cell(i)
                 if not success:
                     failed_cell_idx = i
-                    if self._verbose:
-                        print(f"!!! Error in cell {i}. Halting execution as stop_on_error is {stop_on_error}.")
+                    logger.error("Error in cell %d (stop_on_error=%s)", i, stop_on_error)
                     if stop_on_error:
-                        break 
+                        break
         overall_success = failed_cell_idx is None
-        if self._verbose:
-            print(f"--- Finished running all cells for session '{self.name}'. Overall success: {overall_success} ---")
+        logger.debug("Finished running all cells for session '%s'. Overall success: %s", self.name, overall_success)
         if not overall_success:
             self.last_stop_index = 0 # rerun all when buggy to avoid buggy cells influence the others
         else:
@@ -537,37 +501,22 @@ CALL_API = proxy.__call__'''
 
     def shutdown(self):
         """Shuts down all resources for this session (server and kernel)."""
-        if self._verbose:
-            print(f"\n--- Initiating full shutdown for session '{self.name}' ---")
+        logger.debug("Initiating full shutdown for session '%s'", self.name)
         self.shutdown_server()
         self.shutdown_kernel()
-        if self._verbose:
-            print(f"--- Full shutdown for session '{self.name}' completed ---")
+        logger.debug("Full shutdown for session '%s' completed", self.name)
 
 
 class JupyterSandbox:
     project_root: str
-    _verbose: bool = False
 
     def __init__(self, config: Dict[str, Any], path: Optional[str] = None, verbose: bool = False):
         self.project_root = config['project_root']
         self.config = config
         self.sandbox_dir = path if path else U.pjoin(U.TMP_DIR, 'sandbox', config['name'])
-        if self._verbose:
-            print(f"Initializing JupyterSandbox in: {self.sandbox_dir}")
+        logger.debug("Initializing JupyterSandbox in: %s", self.sandbox_dir)
         self.session_dir = U.pjoin(self.sandbox_dir, 'sessions')
-        self.active_sessions: Dict[str, JupyterSession] = {} # Track active sessions
-        self._verbose = verbose
-
-    def silence(self):
-        self._verbose = False
-        for sess in self.active_sessions.values():
-            sess.silence()
-
-    def verbose(self):
-        self._verbose = True
-        for sess in self.active_sessions.values():
-            sess.verbose()
+        self.active_sessions: Dict[str, JupyterSession] = {}
 
     def new_session(self, name: Optional[str] = None, metadata: Optional[Dict[str, Any]] = None, path: Optional[str] = None) -> JupyterSession:
         metadata = (metadata or {}).copy()
@@ -584,13 +533,12 @@ class JupyterSandbox:
         session_name = session_name_base
         session_path = path if path else U.pjoin(self.session_dir, session_name)
 
-        if self._verbose:
-            print(f"Creating new session '{session_name}' in directory: {session_path}")
+        logger.debug("Creating new session '%s' in directory: %s", session_name, session_path)
         U.mkdirs(session_path)
         notebook_file = U.pjoin(session_path, f"{session_name}.ipynb")
         if U.pexists(notebook_file):
             raise Exception(f"Session '{session_name}' already exists in {session_path}")
-        sess = JupyterSession(name=session_name, dir=session_path, metadata=metadata, notebook_file=notebook_file, _verbose=self._verbose)
+        sess = JupyterSession(name=session_name, dir=session_path, metadata=metadata, notebook_file=notebook_file)
         sess.init_session()
         sess._ensure_notebook_file(create=True) # Create the .ipynb file immediately
         
@@ -608,38 +556,30 @@ class JupyterSandbox:
         meta_file = U.pjoin(session_path, f'{session_name}_meta.json')
         
         if U.pexists(meta_file):
-            if self._verbose:
-                print(f"Loading session '{session_name}' from {meta_file}")
-            # try:
+            logger.debug("Loading session '%s' from %s", session_name, meta_file)
             sess_data = U.load_json(meta_file)
             sess = JupyterSession.from_dict(sess_data)
             self.active_sessions[session_name] = sess # Add to active if loaded
             return sess
         elif create:
-            if self._verbose:
-                print(f"Session '{session_name}' not found. Creating new.")
+            logger.debug("Session '%s' not found, creating new", session_name)
             return self.new_session(name=session_name, metadata=metadata, path=session_path)
         else:
-            if self._verbose:
-                print(f"Session '{session_name}' not found and create is False.")
+            logger.debug("Session '%s' not found and create=False", session_name)
             return None
 
 
     def shutdown_session_resources(self, session_name: str):
         if session_name in self.active_sessions:
             session = self.active_sessions[session_name]
-            session.shutdown() # This now shuts down server AND kernel
-            # del self.active_sessions[session_name] # Keep it in active_sessions, just resources are down
-            if self._verbose:
-                print(f"Resources for session '{session_name}' shut down.")
+            session.shutdown()
+            logger.debug("Resources for session '%s' shut down", session_name)
         else:
-            if self._verbose:
-                print(f"Session '{session_name}' not found in active sessions for resource shutdown.")
+            logger.warning("Session '%s' not found in active sessions for resource shutdown", session_name)
 
     def delete_session_completely(self, session_name: str):
         """Shuts down resources and removes session from disk."""
-        if self._verbose:
-            print(f"Attempting to completely delete session '{session_name}'...")
+        logger.debug("Attempting to completely delete session '%s'", session_name)
         if session_name in self.active_sessions:
             session = self.active_sessions[session_name]
             session.shutdown() # Ensure server/kernel are off
@@ -651,21 +591,16 @@ class JupyterSandbox:
 
         if U.pexists(session_path):
             try:
-                U.rmtree(session_path) # Use shutil.rmtree via U
-                if self._verbose:
-                    print(f"Successfully deleted session directory: {session_path}")
+                U.rmtree(session_path)
+                logger.debug("Deleted session directory: %s", session_path)
             except Exception as e:
-                if self._verbose:
-                    print(f"Error deleting session directory {session_path}: {e}")
+                logger.error("Error deleting session directory %s: %s", session_path, e)
         else:
-            if self._verbose:
-                print(f"Session directory {session_path} not found for deletion.")
+            logger.warning("Session directory %s not found for deletion", session_path)
 
 
     def shutdown_all_sessions_resources(self):
-        if self._verbose:
-            print("Shutting down resources for all active Jupyter sessions...")
-        for name in list(self.active_sessions.keys()): # Iterate copy
+        logger.debug("Shutting down resources for all active Jupyter sessions")
+        for name in list(self.active_sessions.keys()):
             self.shutdown_session_resources(name)
-        if self._verbose:
-            print("Resources for all active sessions shut down.")
+        logger.debug("Resources for all active sessions shut down")

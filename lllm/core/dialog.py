@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import uuid
 import base64
 from PIL import Image
@@ -6,17 +8,18 @@ from pathlib import Path
 import copy
 import re
 from abc import ABC, abstractmethod
-from typing import List, Dict, Any, Optional, Union
+from typing import TYPE_CHECKING, List, Dict, Any, Optional, Union
 from dataclasses import dataclass, field
 from pydantic import BaseModel, Field, ConfigDict, field_validator
 
-from lllm.core.prompt import Prompt, InvokeCost, FunctionCall
-from lllm.core.const import Roles, Modalities, RCollections, APITypes
-from lllm.logging import ReplayableLogBase
+from lllm.core.const import Roles, Modalities, APITypes, InvokeCost, FunctionCall
 import lllm.utils as U
 from lllm.core.runtime import Runtime, get_default_runtime
 import logging
 logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from lllm.core.prompt import Prompt
 
 
 
@@ -234,7 +237,6 @@ class Dialog:
     Agent) never need to wire lineage manually.
     """
     session_name: str = None
-    log_base: Optional[ReplayableLogBase] = None
     top_prompt: Optional[Prompt] = None
     runtime: Optional[Runtime] = None
     owner: Optional[str] = None
@@ -256,14 +258,6 @@ class Dialog:
         if self.session_name is None:
             self.session_name = dt.datetime.now().strftime('%Y%m%d_%H%M%S') + '_' + str(uuid.uuid4())[:6]
         self.runtime = self.runtime or get_default_runtime()
-        if self.log_base is not None:
-            dialogs_sess = self.log_base.get_collection(RCollections.DIALOGS).create_session(self.session_name)
-            dialogs_sess.log(self.dialog_id, metadata=self.tree_node.to_dict())
-            self.sess = self.log_base.get_collection(RCollections.MESSAGES).create_session(
-                f'{self.session_name}/{self.dialog_id}'
-            )
-        else:
-            self.sess = None
 
     # -- Convenience proxies to tree_node ---------------------------------
 
@@ -291,15 +285,9 @@ class Dialog:
 
     # -- Message access ---------------------------------------------------
 
-    def append(self, message: Message): # ensure this is the only way to write the messages to make sure the trackability
+    def append(self, message: Message):
         message.metadata['dialog_id'] = self.dialog_id
         self._messages.append(message)
-        if self.sess is not None:
-            try:
-                self.sess.log(message.content, metadata=message.to_dict()) # Use to_dict for logging
-            except Exception as e:
-                print(f'WARNING: Failed to log message: {e}, log the message without metadata')
-                self.sess.log(message.content)
 
     def to_dict(self):
         return {
@@ -313,7 +301,7 @@ class Dialog:
         }
 
     @classmethod
-    def from_dict(cls, d: dict, log_base: ReplayableLogBase = None, runtime: Runtime = None):
+    def from_dict(cls, d: dict, runtime: Runtime = None):
         top_prompt_path = d.get('top_prompt_path')
         runtime = runtime or get_default_runtime()
         top_prompt = None
@@ -326,7 +314,6 @@ class Dialog:
         tree_node = DialogTreeNode.from_dict(tree_node_data) if tree_node_data else None
         return cls(
             _messages=[Message.from_dict(message) for message in d['messages']],
-            log_base=log_base,
             session_name=d['session_name'],
             owner=d.get('owner'),
             top_prompt=top_prompt,
@@ -392,6 +379,7 @@ class Dialog:
         metadata: Optional[Dict[str, Any]] = None,
         role: Roles = Roles.USER,
     ) -> Message:
+        from lllm.core.prompt import Prompt  # lazy import to avoid circular dependency
         metadata = dict(metadata) if metadata else {}
         # create a temporary prompt for the text to reset parsers and other state
         prompt = Prompt(path='__temp_prompt_'+str(uuid.uuid4())[:6], prompt=text)
@@ -454,7 +442,7 @@ class Dialog:
         - Creates a child DialogTreeNode linked to this dialog's tree_node.
         - Records split_point on the child's tree_node.
         - Wires live Dialog-level parent/children refs.
-        - Inherits session_name, log_base, top_prompt, runtime, owner.
+        - Inherits session_name, top_prompt, runtime, owner.
 
         Returns:
             The new child Dialog.
@@ -481,7 +469,6 @@ class Dialog:
         child = Dialog(
             _messages=[copy.deepcopy(m) for m in _messages],
             session_name=self.session_name,
-            log_base=self.log_base,
             top_prompt=self.top_prompt,
             runtime=self.runtime,
             owner=self.owner,

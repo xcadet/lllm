@@ -8,6 +8,7 @@ import base64
 import asyncio
 import functools as ft
 import importlib
+import logging
 from dataclasses import asdict, dataclass, field
 import json
 import os
@@ -22,8 +23,9 @@ import datetime as dt
 import random
 import time
 
-
 from tqdm import tqdm
+
+logger = logging.getLogger(__name__)
 
 last_successful_screenshot = None
 
@@ -108,8 +110,7 @@ class ComputerUseHandler:
             last_successful_screenshot = base64.b64encode(screenshot_bytes).decode("utf-8")
             return last_successful_screenshot
         except Exception as e:
-            print(f"Screenshot failed: {e}")
-            print(f"Using cached screenshot from previous successful capture")
+            logger.warning("Screenshot failed: %s — using cached screenshot", e)
             if last_successful_screenshot:
                 return last_successful_screenshot
 
@@ -135,7 +136,7 @@ class ComputerUseHandler:
         action_type = action.type
         
         if action_type == "drag":
-            print("Drag action is not supported in this implementation. Skipping.")
+            logger.debug("Drag action is not supported, skipping.")
             return
             
         elif action_type == "click":
@@ -366,7 +367,7 @@ class OpenAICUA:
         self.cua_configs = cua_configs
         for key in _DEFAULT_CUA_CONFIGS:
             if key not in self.cua_configs:
-                print(f"Warning: '{key}' not found in CUA configs. Using default value {_DEFAULT_CUA_CONFIGS[key]}.")
+                logger.warning("'%s' not in CUA configs, using default %s", key, _DEFAULT_CUA_CONFIGS[key])
                 self.cua_configs[key] = _DEFAULT_CUA_CONFIGS[key]
         self.handler = ComputerUseHandler(
             DISPLAY_HEIGHT=self.cua_configs['display_height'],
@@ -421,23 +422,21 @@ class OpenAICUA:
                 break
             except RateLimitError as e:
                 wait_time = random.random()*15+1
-                print(f"Rate limit error. Waiting {wait_time:.2f} seconds to retry...")
+                logger.warning("Rate limit error, retrying in %.2fs", wait_time)
                 await asyncio.sleep(wait_time)
             except Exception as e:
                 if is_openai_rate_limit_error(e): # for safer
                     wait_time = random.random()*15+1
-                    print(f"Rate limit error. Waiting {wait_time:.2f} seconds to retry...")
+                    logger.warning("Rate limit error, retrying in %.2fs", wait_time)
                     await asyncio.sleep(5)
                 else:
                     llm_recall -= 1  # Decrement for other errors
-                    print(f"An unexpected error occurred: {e}")
-                    import traceback
-                    traceback.print_exc()
+                    logger.error("Unexpected API error: %s", e, exc_info=True)
                     if llm_recall > 0:
-                        print(f"Retrying in 2 seconds. Retries left: {llm_recall}")
+                        logger.info("Retrying in 2 seconds. Retries left: %d", llm_recall)
                         await asyncio.sleep(2)
                     else:
-                        print("Max retries reached. Aborting.")
+                        logger.error("Max retries reached, aborting.")
         if response is None:
             raise AgentException("Unable to obtain a response from the Computer Use API after retries.")
         sess.log_response(_call_args, response, previous_response_id)
@@ -542,25 +541,21 @@ class OpenAICUA:
                 try:
                     await page.bring_to_front()
                     await self.handler.handle_action(page, action)
-                    
+
                     # Check if a new page was created after the action
                     if action.type in ["click"]:
                         await asyncio.sleep(1.5)
-                        # Get all pages in the context
                         all_pages = page.context.pages
-                        # If we have multiple pages, check if there's a newer one
                         if len(all_pages) > 1:
-                            newest_page = all_pages[-1]  # Last page is usually the newest
+                            newest_page = all_pages[-1]
                             if newest_page != page and newest_page.url not in ["about:blank", ""]:
-                                # print(f"\tSwitching to new tab: {newest_page.url}")
-                                page = newest_page  # Update our page reference
+                                logger.debug("Switching to new tab: %s", newest_page.url)
+                                page = newest_page
                     elif action.type != "wait":
                         await asyncio.sleep(0.5)
-                        
+
                 except Exception as e:
-                    # print(f"Error handling action {action.type}: {e}")
-                    import traceback
-                    traceback.print_exc()    
+                    logger.error("Error handling action '%s': %s", action.type, e, exc_info=True)
 
                 # Take a screenshot after the action
                 screenshot_base64 = await self.handler.take_screenshot(page)
@@ -593,9 +588,9 @@ class OpenAICUA:
                     current_url = page.url
                     if current_url and current_url != "about:blank":
                         input_content[0]["current_url"] = current_url
-                        # print(f"\tCurrent URL: {current_url}")
+                        logger.debug("Current URL: %s", current_url)
                 except Exception as e:
-                    print(f"Error getting URL: {e}")
+                    logger.warning("Error getting page URL: %s", e)
                 
                 # Send the screenshot back for the next step
                 try:
@@ -607,13 +602,11 @@ class OpenAICUA:
 
                     # print("\tModel processing screenshot")
                 except Exception as e:
-                    print(f"Error in API call: {e}")
-                    import traceback
-                    traceback.print_exc()
+                    logger.error("API call failed: %s", e, exc_info=True)
                     break
 
             except AgentException as e:
-                print(f"An error occurred during processing: {e}")
+                logger.warning("Agent exception during CUA iteration: %s", e.message)
                 response = await self.create_response(
                     sess=sess,
                     input=e.message,
@@ -623,7 +616,7 @@ class OpenAICUA:
                 continue
 
         if conclude:
-            print("\nConcluding the session with final instructions.")
+            logger.info("CUA session %s: concluding with final instructions", sess.id)
             response_id = getattr(response, 'id', 'unknown')
             assert response_id != 'unknown', "Response ID is unknown, cannot conclude session."
             inputs = []
@@ -705,9 +698,9 @@ class OpenAICUA:
                             "text":  f"There is any error from your response: {e}. Please follow the instructions closely."
                         }]
                     })
-                    print(f"Error parsing conclusion: {e}")
+                    logger.warning("Conclusion parse error: %s", e)
                     continue
-            print("Session concluded successfully.")
+            logger.info("CUA session %s concluded successfully", sess.id)
 
         return report
 
@@ -747,7 +740,7 @@ class OpenAICUA:
             
             # Navigate to starting page
             await page.goto(url, wait_until=wait_until)
-            print(f"Browser initialized to {url}")
+            logger.info("Browser initialized to %s", url)
 
             if system is None:
                 system = '''You are an AI agent with the ability to control a browser. 
@@ -778,21 +771,20 @@ Once you have completed the requested task you should stop running and pass back
                     }],
                     reasoning={"generate_summary": "concise"},
                 )
-                print("\nSending model initial screenshot and instructions")
+                logger.debug("Sent initial screenshot and instructions to model")
 
                 # Process model actions
                 report = await self.process_model_response(sess, response, page, safety_checks=safety_checks)
 
             except Exception as e:
-                print(f"An error occurred: {e}")
-                import traceback
-                traceback.print_exc()
-                error = f'Error occured in CUA: {e}\n{"-"*100}\n{traceback.format_exc()}'
+                import traceback as _tb
+                logger.error("CUA session error: %s", e, exc_info=True)
+                error = f'Error occured in CUA: {e}\n{"-"*100}\n{_tb.format_exc()}'
             finally:
                 # Close browser
                 await context.close()
                 await browser.close()
-                print("Browser closed.")
+                logger.debug("Browser closed")
         if report is None:
             report = {
                 'raw': error if error else "No report generated. The session was terminated without a report.",

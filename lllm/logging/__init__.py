@@ -1,290 +1,36 @@
-from typing import Dict, Any, List, Optional
-import datetime as dt
-from dataclasses import dataclass
-import lllm.utils as U
-from lllm.core.const import RCollections
-import os
+"""
+lllm.logging — logging and session persistence for LLLM.
 
-@dataclass
-class Log:
-    timestamp: str
-    value: str
-    metadata: Dict[str, Any]
+Public API:
+    LogBackend          — abstract KV storage driver
+    LocalFileBackend    — one file per key under a root directory
+    SQLiteBackend       — single SQLite file
+    NoOpBackend         — silently discards everything
+    LogStore            — persists / queries TacticCallSessions
+    SessionRecord       — full session + metadata (returned by load_session_record)
+    SessionSummary      — lightweight descriptor (returned by list_sessions)
+    ColoredFormatter    — ANSI-colored logging.Formatter
+    setup_logging       — convenience function to configure the lllm logger
+"""
 
-class LogSession:
-    def __init__(self, db, collection: str, session_name: str):
-        self.db = db
-        assert isinstance(collection, str), f"collection must be a string"
-        self.collection = collection
-        self.session_name = session_name
+from lllm.logging.backend import (
+    LogBackend,
+    LocalFileBackend,
+    SQLiteBackend,
+    NoOpBackend,
+)
+from lllm.logging.store import LogStore
+from lllm.logging.models import SessionRecord, SessionSummary
+from lllm.logging.formatter import ColoredFormatter, setup_logging
 
-    def log(self, value: str, metadata: Optional[Dict[str, Any]] = None):
-        """
-        Log a value with metadata, this should be a stable interface for all loggers
-        """
-        timestamp = dt.datetime.now().isoformat()
-        payload = dict(metadata) if metadata else {}
-        self.db.write(timestamp, value, payload, self.collection, self.session_name)
-
-class LogCollection:
-    def __init__(self, db, collection: str):
-        self.db = db
-        self.collection = collection
-
-    def create_session(self, session_name: str) -> LogSession:
-        return LogSession(self.db, self.collection, session_name)
-
-class LogBase:
-    """
-    A base class for key-value based logging systems.
-    """
-    def __init__(self, base_name: str, config: Dict[str, Any]):
-        self.config = config
-        self.log_dir = U.pjoin(config['log_dir'], base_name)
-        U.mkdirs(self.log_dir)
-        
-    def get_collection(self, collection: str) -> LogCollection:
-        return LogCollection(self, collection)
-
-    def write(self, key: str, value: str, metadata: Dict[str, Any], collection: str, session_name: str):
-        raise NotImplementedError("write not implemented")
-
-    def read(self, collection: str, session_name: str) -> List[Log]:
-        raise NotImplementedError("read not implemented")
-
-    def del_collection(self, collection: str):
-        raise NotImplementedError("del_collection not implemented")
-
-    def del_session(self, collection: str, session_name: str):
-        raise NotImplementedError("del_session not implemented")
-        
-    def log_error(self, error: str):
-        raise NotImplementedError("log_error not implemented")
-
-
-class ReplayableLogBase(LogBase):
-
-    def log_error(self, error: str):
-        self.write(RCollections.ERRORS, error, {}, RCollections.ERRORS.value, self.session_name)
-
-    def get_collection(self, collection: RCollections):
-        assert collection in RCollections, f"collection must be one of RCollections: {RCollections}"
-        return LogCollection(self, collection.value)
-
-
-@dataclass
-class Activity:
-    timestamp: str
-    value: str
-    metadata: Dict[str, Any]
-    type: str
-
-
-class ReplaySession:
-    def __init__(self, db, session_name: str):
-        self.db = db
-        self.session_name = session_name
-        self.dialogs = self.db.read(RCollections.DIALOGS, self.session_name)
-        self.frontend = self.db.read(RCollections.FRONTEND, self.session_name)
-        self.messages = {}
-        for dialog in self.dialogs:
-            dialog_id = dialog.value
-            self.messages[dialog_id] = self.db.read(RCollections.MESSAGES, f'{self.session_name}/{dialog_id}')
-
-    @property
-    def activities(self) -> List[Activity]: # inseart frontend messages to messages
-        activities = []
-        for dialog in self.dialogs:
-            dialog_id = dialog.value
-            activities.extend(self.messages[dialog_id])
-        activities.extend(self.frontend)
-        # sort by timestamp, oldest first
-        activities.sort(key=lambda x: x.timestamp)
-        return activities
-
-
-class LocalFileLog(ReplayableLogBase):
-
-    def write(self, key: str, value: str, metadata: Dict[str, Any], collection: str, session_name: str):
-        folder = U.pjoin(self.log_dir, collection, session_name)
-        U.mkdirs(folder)
-        file_path = U.pjoin(folder, f"{key}.json")
-        data = {
-            'timestamp': key,
-            'value': value,
-            'metadata': metadata
-        }
-        U.save_json(file_path, data)
-
-    def read(self, collection: str, session_name: str) -> List[Log]:
-        folder = U.pjoin(self.log_dir, collection, session_name)
-        if not os.path.exists(folder):
-            return []
-        files = os.listdir(folder)
-        data = []
-        for file in files:
-            data.append(U.load_json(U.pjoin(folder, file)))
-        # sort by timestamp, oldest first
-        data.sort(key=lambda x: x['timestamp'])
-        return [Log(**log) for log in data]
-
-    def del_collection(self, collection: str):
-        folder = U.pjoin(self.log_dir, collection)
-        U.rmtree(folder)
-
-    def del_session(self, collection: str, session_name: str):
-        folder = U.pjoin(self.log_dir, collection, session_name)
-        U.rmtree(folder)
-
-
-class NoLog(ReplayableLogBase):
-    def write(self, key: str, value: str, metadata: Dict[str, Any], collection: str, session_name: str):
-        pass
-    def read(self, collection: str, session_name: str) -> List[Log]:
-        return []
-    def del_collection(self, collection: str):
-        pass
-    def del_session(self, collection: str, session_name: str):
-        pass
-        
-        
-def build_log_base(config: Dict[str, Any], base_name: str = None):
-    if base_name is None:
-        base_name = config['name'] + '_default'
-    if config['log_type'] == 'localfile':
-        return LocalFileLog(base_name, config)
-    elif config['log_type'] == 'none':
-        return NoLog(base_name, config)
-    else:
-        raise ValueError(f"Log type {config['log_type']} not supported")
-
-
-
-#########################
-# Frontend
-#########################
-
-class NaiveWith: 
-    def __init__(self,message,*args,**kwargs):
-        self.message = message
-
-    def __enter__(self):
-        print(f'\n[START: {self.message}]\n')
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        print(f'\n[FINISH: {self.message}]\n')
-
-class SilentWith(NaiveWith):
-    def __enter__(self):
-        pass
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        pass
-
-class WithWrapper:
-    def __init__(self, with_class, log_function, tag):
-        self.with_class = with_class
-        self.log_function = log_function
-        self.tag = tag
-
-    def __call__(self, message, *args, **kwargs):
-        class WrappedWith:
-            def __init__(cls, message, log_function, *args, **kwargs):
-                cls.message = message
-                cls.log_function = log_function
-                cls.original_with = self.with_class(message, *args, **kwargs)
-
-            def __enter__(cls):
-                cls.log_function(cls.message, f'enter{self.tag}')
-                return cls.original_with.__enter__()
-
-            def __exit__(cls, exc_type, exc_val, exc_tb):
-                cls.log_function(cls.message, f'exit{self.tag}')
-                return cls.original_with.__exit__(exc_type, exc_val, exc_tb)
-
-        return WrappedWith(message, self.log_function, *args, **kwargs)
-    
-
-class PrintSystem:
-    def __init__(self,silent=False):
-        self._isprintsystem = True
-        self.silent=silent
-        self.status = NaiveWith if not silent else SilentWith
-        self.spinner = NaiveWith if not silent else SilentWith
-        self.expander = NaiveWith if not silent else SilentWith
-    
-    def write(self,msg,**kwargs):
-        if not self.silent:
-            print(msg)
-
-    def markdown(self,msg,**kwargs):
-        if not self.silent:
-            print(msg)
-    
-    def spinner(self,msg,**kwargs):
-        if not self.silent:
-            print(msg)
-
-    def code(self,code,**kwargs):
-        if not self.silent:
-            print(code)
-
-    def balloons(self,**kwargs):
-        if not self.silent:
-            print('🎈🎈🎈🎈🎈')
-
-    def snow(self,**kwargs):
-        if not self.silent:
-            print('❄️❄️❄️❄️❄️')
-    
-    def divider(self,**kwargs):
-        if not self.silent:
-            print('--------------------------------')
-
-    def progress(self,initial_progress,**kwargs): # 0 to 1
-        bar = tqdm(total=1,initial=initial_progress,**kwargs)
-        def progress(progress,text=None):
-            if text is not None:
-                bar.set_description(text)
-            bar.n = round(float(progress),2)
-            bar.refresh()
-        bar.progress = progress
-        return bar
-
-    def error(self,msg,**kwargs):
-        cprint(f'Error: {msg}','r')
-
-
-class StreamWrapper: # adding logging to a stream, either printsystem or streamlit
-    def __init__(self, stream, log_base, session_name: str):
-        self.stream=stream
-        self.sess = log_base.get_collection(RCollections.FRONTEND).create_session(session_name)
-        self.status = WithWrapper(stream.status, self.log, 'status')
-        self.spinner = WithWrapper(stream.spinner, self.log, 'spinner')
-        self.expander = WithWrapper(stream.expander, self.log, 'expander')
-
-    def log(self,msg,type):
-        self.sess.log(msg,metadata={'type':type})
-    
-    def write(self,msg,**kwargs):
-        self.stream.write(msg,**kwargs)
-        self.log(msg,'write')
-
-    def markdown(self,msg,**kwargs):
-        self.stream.markdown(msg,**kwargs)
-        self.log(msg,'markdown')
-
-    def balloons(self,**kwargs):
-        self.stream.balloons(**kwargs)
-        self.log('balloons','balloons')
-
-    def snow(self,**kwargs):
-        self.stream.snow(**kwargs)
-        self.log('snow','snow')
-
-    def divider(self,**kwargs):
-        self.stream.divider(**kwargs)
-        self.log('divider','divider')
-
-    def code(self,code,**kwargs):
-        self.stream.code(code,**kwargs)
-        self.log(code,'code')
+__all__ = [
+    "LogBackend",
+    "LocalFileBackend",
+    "SQLiteBackend",
+    "NoOpBackend",
+    "LogStore",
+    "SessionRecord",
+    "SessionSummary",
+    "ColoredFormatter",
+    "setup_logging",
+]

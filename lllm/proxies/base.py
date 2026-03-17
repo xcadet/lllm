@@ -1,9 +1,11 @@
 import inspect
 import functools as ft
 import datetime as dt
+import logging
 from typing import Dict, Any, List, Optional, Callable
-import lllm.utils as U
 from lllm.core.runtime import Runtime, get_default_runtime
+
+logger = logging.getLogger(__name__)
 
 
 class BaseProxy:
@@ -164,7 +166,7 @@ class ProxyManager:
     def register(self, name: str, proxy_cls: Any):
         """Register (or override) a proxy implementation at runtime."""
         if name in self.proxies:
-            U.cprint(f'Proxy {name} already instantiated, overwriting instance', 'y')
+            logger.warning("Proxy '%s' already instantiated, overwriting instance", name)
         try:
             instance = proxy_cls(
                 cutoff_date=self.cutoff_date,

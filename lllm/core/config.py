@@ -792,7 +792,7 @@ class AgentSpec:
             extra_settings=extra_settings,
         )
 
-    def build(self, runtime: Runtime, invoker, log_base=None):
+    def build(self, runtime: Runtime, invoker):
         """Construct a live Agent from this spec."""
         from lllm.core.agent import Agent
         from lllm.core.const import APITypes
@@ -811,7 +811,6 @@ class AgentSpec:
             llm_invoker=invoker,
             api_type=api_type,
             model_args=self.model_args,
-            log_base=log_base,
             max_exception_retry=self.max_exception_retry,
             max_interrupt_steps=self.max_interrupt_steps,
             max_llm_recall=self.max_llm_recall,
