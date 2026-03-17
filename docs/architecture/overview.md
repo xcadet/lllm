@@ -124,7 +124,7 @@ LLLM is designed for developers and researchers — in the spirit of PyTorch and
 
 ### Core Principles
 
-**Agentic system as a program.** An agentic system = agents (system prompt + base model, the "callers") + prompts (the "functions") + tactics (the "program" that wires them together). Treating each agent invocation as a well-defined function call — with explicit inputs, outputs, and error handling — minimises side effects, maximises compositionality, and makes parallelism straightforward.
+**Agentic system as a program.** An agentic system = agents (≈ system prompt + base model + proxies/skills, the "callers") + prompts (the "functions") + tactics (the "program" that wires them together). Treating each agent invocation as a well-defined function call — with explicit inputs, outputs, and error handling — minimises side effects, maximises compositionality, and makes parallelism straightforward.
 
 **Dialog as internal mental state.** A dialog is the internal view each agent has of the conversation — not a shared global log. Different agents in a task maintain separate dialogs: each agent sees only what it has been told. The `top_prompt` at the head of the dialog also acts as the calling convention for the next turn, making the dialog a kind of function stack.
 

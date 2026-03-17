@@ -204,6 +204,17 @@ def clean_runtime():
 | `get_runtime(name=None)` | Get a runtime by name (`None` = default). |
 | `load_runtime(path=None, name=None)` | Create, populate, and store a runtime. |
 
+### Package Management
+
+| Function | Description |
+| --- | --- |
+| `install_package(zip_path, *, alias=None, scope="user", load=True, runtime=None)` | Install a package from a `.zip` file into `~/.lllm/packages/` (user scope) or `lllm_packages/` (project scope). Pass `alias` to rename the package namespace. Set `load=False` to skip loading into the runtime. |
+| `export_package(package_name, output_path, *, bundle_deps=False, runtime=None)` | Export a loaded package to a `.zip` file. Pass `bundle_deps=True` to pack all transitive dependencies under `lllm_packages/` inside the zip. |
+| `list_packages(scope=None, *, runtime=None)` | Return a list of dicts (`name`, `version`, `description`, `scope`, `path`) for all installed packages. Pass `scope="user"` or `scope="project"` to filter. |
+| `remove_package(name, *, scope=None, runtime=None)` | Delete an installed package by name and unregister it from the runtime. Raises `ValueError` if the package exists in both scopes and no scope is specified. |
+
+All four functions are also available via the CLI as `lllm pkg install / export / list / remove`. See [Sharing Packages](../architecture/packages.md#sharing-packages) for the full workflow.
+
 
 ## Design Notes
 

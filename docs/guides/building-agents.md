@@ -310,6 +310,101 @@ See [Logging](../core/logging.md) for the full query API, tag system, and cost r
 
 ---
 
+## Step 9: Sharing your package
+
+Once a package is working, you can export it as a self-contained zip and publish it to teammates or the community. Recipients can drop it into their project in one command — no manual copying of files or edits to `lllm.toml`.
+
+### Export
+
+```python
+from lllm import export_package, load_runtime
+
+load_runtime()   # discovers the current project
+export_package("research_writer", "~/releases/research-writer-v1.0.zip")
+```
+
+Or from the CLI:
+
+```bash
+lllm pkg export research_writer ~/releases/research-writer-v1.0.zip
+```
+
+To bundle all transitive dependencies into the same zip so recipients don't need to install them separately:
+
+```bash
+lllm pkg export research_writer ~/releases/research-writer-v1.0.zip --bundle-deps
+```
+
+### Install
+
+```bash
+# User-level install (available across all your projects)
+lllm pkg install research-writer-v1.0.zip
+
+# Project-level install (committed to the repo, shared with the team)
+lllm pkg install research-writer-v1.0.zip --scope project
+
+# Install under a different name to avoid a namespace collision
+lllm pkg install research-writer-v1.0.zip --alias rw
+```
+
+After install, resources are available immediately on the next `import lllm` (auto-discovery scans `~/.lllm/packages/` and `lllm_packages/` at startup):
+
+```python
+from lllm import load_prompt, resolve_config
+
+prompt = load_prompt("research_writer:researcher_system")
+config = resolve_config("research_writer:research_writer")
+```
+
+### List and remove
+
+```bash
+lllm pkg list               # show all installed packages (name, version, scope, path)
+lllm pkg list --scope user  # user-level only
+
+lllm pkg remove research_writer          # remove from wherever it's installed
+lllm pkg remove research_writer --scope project
+```
+
+### Python API
+
+All CLI commands have direct Python equivalents:
+
+```python
+from lllm import install_package, export_package, list_packages, remove_package
+
+# Export
+export_package("research_writer", "~/releases/rw-v1.0.zip", bundle_deps=True)
+
+# Install
+install_package("~/releases/rw-v1.0.zip", alias="rw", scope="project")
+
+# List
+for pkg in list_packages():
+    print(pkg["name"], pkg["version"], pkg["scope"])
+
+# Remove
+remove_package("research_writer", scope="user")
+```
+
+### Writing a package for sharing
+
+A few conventions make a package easy to consume:
+
+1. **Use a unique, stable name** in `lllm.toml` — it becomes the namespace prefix. `acme-research-writer` collides less than `research_writer`.
+2. **Use package-qualified paths in configs** so resources resolve regardless of what the consumer's root package is:
+   ```yaml
+   system_prompt_path: research_writer:researcher_system   # ✓ always works
+   system_prompt_path: researcher_system                    # ✗ breaks if not root
+   ```
+3. **Declare dependencies** in `[dependencies]` so `--bundle-deps` captures the full graph.
+4. **Include a `README`** and an example `configs/example.yaml` — if consumers can't get a result in five minutes, they'll move on.
+
+See [Package System — Sharing Packages](../architecture/packages.md#sharing-packages) for the full reference on drop-in directories, explicit dependencies, and the packages-vs-skills comparison.
+
+---
+
 ## Advanced Customization
 
 The package system gives you the full structure. These are the deep extension points when you need to go further.
@@ -388,13 +483,13 @@ research_writer/
 └── main.py
 ```
 
-This package can be shared, imported as a dependency by another package, and its tactics can be called by higher-level systems without modification.
+This package can be shared (`lllm pkg export`), installed by others (`lllm pkg install`), imported as a dependency by another package, and its tactics can be called by higher-level systems without modification.
 
 ---
 
 ## Next Steps
 
-- [Package System](../architecture/packages.md) — namespacing, dependencies, aliasing, custom sections
+- [Package System](../architecture/packages.md) — namespacing, dependencies, aliasing, custom sections, and sharing
 - [Configuration](../core/config.md) — `lllm.toml`, YAML config inheritance, and `vendor_config`
 - [Prompts](../core/prompts.md) — templates, parsers, tools, and handlers in depth
 - [Agent](../core/agent.md) — how the call loop handles errors and interrupts

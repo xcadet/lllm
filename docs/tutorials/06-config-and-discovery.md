@@ -38,6 +38,7 @@ LLLM scans the listed directories at startup. Any `Prompt` objects found in `.py
 ```
 my_project/
 ├── lllm.toml
+├── lllm_packages/          # drop third-party packages here (auto-discovered)
 ├── prompts/
 │   ├── greeter.py          # contains Prompt objects
 │   └── analyst/
@@ -47,6 +48,8 @@ my_project/
 └── tactics/
     └── analyzer.py         # contains Tactic subclasses
 ```
+
+Any sub-folder of `lllm_packages/` that contains an `lllm.toml` is loaded automatically at startup. See [Package Sharing](../architecture/packages.md#sharing-packages) for `lllm pkg install`, `export`, and `list` commands.
 
 ---
 
@@ -182,8 +185,8 @@ For running parallel experiments without cross-contamination:
 from lllm import load_runtime, get_runtime
 
 # Load a dedicated runtime from a specific config
-load_runtime("experiment_1", config_path="./configs/exp1/lllm.toml")
-load_runtime("experiment_2", config_path="./configs/exp2/lllm.toml")
+load_runtime("./configs/exp1/lllm.toml", name="experiment_1")
+load_runtime("./configs/exp2/lllm.toml", name="experiment_2")
 
 rt1 = get_runtime("experiment_1")
 rt2 = get_runtime("experiment_2")

@@ -1,54 +1,48 @@
 # Lesson 8 — Advanced Patterns
 
-This lesson brings together everything covered so far and introduces patterns for production-grade agentic systems: proxies, dialog forking for exploration, structured multi-step pipelines, and parallel batch processing.
+This lesson brings together everything covered so far and introduces patterns for production-grade agentic systems: multi-proxy orchestration, dialog forking for exploration, structured multi-step pipelines, and parallel batch processing.
+
+> **Proxy basics** (defining a `BaseProxy`, `exec_env: interpreter`, `run_python`, `CALL_API`) are covered in [Lesson 4 — Tools](04-tools.md#proxy-tools--structured-access-to-external-apis). This lesson assumes you are already comfortable with the single-proxy setup and shows more advanced compositions.
 
 ---
 
-## Pattern 1: Proxy — Structured API Surface for Tools
+## Pattern 1: Multi-Proxy Orchestration
 
-A `BaseProxy` wraps an external API and exposes its endpoints in a discoverable, self-documenting way. Agents use a `ProxyManager` to enumerate and call these endpoints as tools.
+When an agent needs to combine data from several APIs, give it access to multiple proxies and let it drive the calls through a shared interpreter. Each proxy's endpoints are lazily discovered via `query_api_doc` so the context stays clean.
 
-```python
-from lllm import BaseProxy
-from lllm.proxies.base import ProxyRegistrator
-
-@ProxyRegistrator(
-    path="weather",
-    name="Weather API",
-    description="Live weather data for any city",
-)
-class WeatherProxy(BaseProxy):
-
-    @BaseProxy.endpoint(
-        category="weather",
-        endpoint="/current",
-        description="Get current weather conditions",
-        params={
-            "city": (str, "Paris"),
-            "unit": (str, "celsius"),
-        },
-        response=["temperature", "condition"],
-    )
-    def current(self, city: str, unit: str = "celsius") -> dict:
-        # Replace with real HTTP call
-        return {"temperature": 22, "condition": "sunny"}
+```yaml
+# config.yaml
+agent_configs:
+  - name: research_analyst
+    system_prompt: >
+      You are a financial research analyst. You have access to market data,
+      macroeconomic indicators, and news search. Use them together.
+    proxy:
+      activate_proxies: [fmp, fred, exa]   # three proxies loaded
+      exec_env: interpreter
+      max_output_chars: 8000
+      timeout: 90.0
 ```
 
-List available proxies:
+The agent's typical session for a complex query:
 
 ```python
-from lllm.proxies.base import ProxyManager
+# Turn 1: discover what the market data proxy exposes
+query_api_doc("fmp")
+# → endpoint list: price, earnings, balance-sheet, ...
 
-manager = ProxyManager()
-print(manager.available())              # ["weather"]
-print(manager.retrieve_api_docs())      # human-readable endpoint list
+# Turn 2: pull the data it needs
+prices = CALL_API("fmp/price", {"symbol": "AAPL", "period": "1y"})
+macro  = CALL_API("fred/series", {"series_id": "GDP"})
+print(f"Got {len(prices)} price points, latest GDP: {macro[-1]['value']}")
+
+# Turn 3: cross-reference with news
+news = CALL_API("exa/search", {"query": "Apple earnings outlook 2025", "num_results": 5})
+for article in news:
+    print(article["title"], article["url"])
 ```
 
-Call an endpoint:
-
-```python
-result = manager("weather.current", city="Tokyo")
-```
+Variables persist across turns, so a complex analysis can be built incrementally over many `run_python` calls. The interpreter acts as a shared scratchpad across the whole session.
 
 ---
 
@@ -310,6 +304,7 @@ results = tactic.bcall(
 
 ## What to Explore Next
 
+- **Proxy basics** — defining proxies and the interpreter tool loop: [Lesson 4 — Tools](04-tools.md#proxy-tools--structured-access-to-external-apis).
 - **Computer Use Agent** — `lllm.tools.cua` for browser automation via Playwright.
 - **Responses API** — set `api_type = "response"` per agent to enable native OpenAI web search.
 - **Skills** — higher-level reusable agent behaviours (see the [Skills](https://agentskills.io) documentation).

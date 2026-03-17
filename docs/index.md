@@ -60,7 +60,7 @@ No `lllm.toml`, no folder structure, no subclassing. [Full quick start →](gett
 
     ---
 
-    From a one-liner chat to a production multi-agent system — step by step, no prior LLLM knowledge required.
+    From a one-liner chat to a production multi-agent system — step by step. Covers tools, the full proxy/interpreter system, tactics, logging, and advanced patterns.
 
     [:octicons-arrow-right-24: Start Lesson 1](tutorials/01-quick-start.md) · [:octicons-arrow-right-24: All lessons](tutorials/index.md)
 
@@ -68,7 +68,7 @@ No `lllm.toml`, no folder structure, no subclassing. [Full quick start →](gett
 
     ---
 
-    Proxies, custom invokers, log backends, batch processing, streaming, and image input.
+    Multi-proxy orchestration, custom invokers, log backends, batch processing, streaming, and image input.
 
     [:octicons-arrow-right-24: Advanced Patterns](tutorials/08-advanced-patterns.md) · [:octicons-arrow-right-24: Logging](tutorials/07-logging.md)
 
@@ -88,7 +88,7 @@ No `lllm.toml`, no folder structure, no subclassing. [Full quick start →](gett
 
 | Concept | Role | Analogy |
 |---------|------|---------|
-| **Agent** | System prompt + base model + call loop | A "caller" |
+| **Agent** | ≈ System prompt + base model + proxies/skills | A "caller" |
 | **Prompt** | Template + parser + tools + handlers | A "function" |
 | **Dialog** | Per-agent conversation state | Internal "mental state" |
 | **Tactic** | Wires agents to prompts, orchestrates collaboration | A "program" |

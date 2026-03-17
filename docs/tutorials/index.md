@@ -9,11 +9,11 @@ A progressive series of 8 lessons that takes you from a one-line chat to a produ
 | 1 | [Quick Start](01-quick-start.md) | Install, set an API key, send your first message |
 | 2 | [Agents and Dialogs](02-agents-and-dialogs.md) | Core mental model: `Agent`, `Dialog`, multi-turn conversations, forking |
 | 3 | [Prompts and Structured Output](03-prompts.md) | Template variables, XML/Markdown parsers, Pydantic output, prompt inheritance |
-| 4 | [Tools](04-tools.md) | `@tool` decorator, attaching tools to prompts, tool-call loop, MCP servers |
+| 4 | [Tools & Proxies](04-tools.md) | `@tool` decorator, tool-call loop, MCP servers; proxy system, `run_python`, `CALL_API`, interpreter vs Jupyter |
 | 5 | [Tactics](05-tactics.md) | Orchestrating multiple agents, session tracking, batch and async execution |
 | 6 | [Configuration and Auto-Discovery](06-config-and-discovery.md) | `lllm.toml`, YAML agent configs, config inheritance, named runtimes |
 | 7 | [Logging and Cost Tracking](07-logging.md) | `LogStore`, backends, tagging, cost aggregation, debugging failures |
-| 8 | [Advanced Patterns](08-advanced-patterns.md) | Proxies, dialog forking, pipelines, batch processing, streaming, image input |
+| 8 | [Advanced Patterns](08-advanced-patterns.md) | Multi-proxy orchestration, dialog forking, pipelines, batch processing, streaming, image input |
 
 ---
 
