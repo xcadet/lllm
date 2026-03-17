@@ -245,7 +245,6 @@ def _stable_tactic_id(namespace: str, tactic_name: str) -> str:
 
 def build_tactic(
     config: Dict[str, Any],
-    ckpt_dir: str,
     log_store: Optional[LogStore] = None,
     name: str = None,
     runtime: Runtime = None,
@@ -273,7 +272,7 @@ def build_tactic(
         tactic_path = tactic_cls.name  # not in package system — bare name
 
     return tactic_cls(
-        config, ckpt_dir,
+        config,
         log_store=log_store, runtime=rt,
         tactic_path=tactic_path,
         **kwargs,
@@ -326,7 +325,6 @@ class Tactic(ABC):
     def __init__(
         self,
         config: Dict[str, Any],
-        ckpt_dir: str,
         log_store: Optional[LogStore] = None,
         runtime: Optional[Runtime] = None,
         tactic_path: Optional[str] = None,
@@ -335,7 +333,6 @@ class Tactic(ABC):
         self._sub_tactics: Dict[str, Tactic] = {}
 
         self.config = config
-        self.ckpt_dir = ckpt_dir
         self._log_store: Optional[LogStore] = log_store
         self._log_store_warned: bool = False
         # Absolute qualified key in the runtime, e.g. "my_pkg.tactics:folder/researcher".
@@ -505,19 +502,53 @@ class Tactic(ABC):
     # -- Quick constructor ------------------------------------------------
 
     @classmethod
-    def quick(cls, system_prompt: Union[str, Prompt], model: str = "gpt-4o", **model_args) -> Agent:
+    def quick(cls, 
+        query: Optional[str] = None, 
+        system_prompt: Optional[Union[str, Prompt]] = "You are a helpful assistant.", 
+        model: str = "gpt-4o", 
+        return_agent: bool = False,
+        **model_args
+    ) -> Union[Message, Agent, Tuple[Message, Agent]]:
+        """
+        Quick constructor for a single-agent chat.
+
+        Args:
+            query: The query to send to the agent.
+            system_prompt: The system prompt to use for the agent.
+            model: The model to use for the agent.
+            return_agent: If True, return the agent in addition to the response. If no query is provided, return the agent.
+            **model_args: Additional model arguments.
+
+        Returns:
+            If return_agent is False:
+                Message: The response from the agent.
+            If return_agent is True:
+                Tuple[Message, Agent]: The response from the agent and the agent.
+            If return_agent is True and query is not provided:
+                Agent: The agent.
+        """
         if isinstance(system_prompt, str):
             prompt = Prompt(path="_quick/system", prompt=system_prompt)
         else:
             prompt = system_prompt
         invoker = build_invoker({"invoker": "litellm"})
-        return Agent(
+        agent = Agent(
             name="assistant",
             system_prompt=prompt,
             model=model,
             llm_invoker=invoker,
             model_args=model_args,
         )
+        if query is not None:
+            agent.open("chat")
+            agent.receive(query)
+            response = agent.respond()
+            if return_agent:
+                return response, agent
+            else:
+                return response
+        else:
+            return agent
 
     def __repr__(self) -> str:
         parts = [f"Tactic(name={self.name!r}"]
