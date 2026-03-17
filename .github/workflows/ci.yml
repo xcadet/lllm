@@ -30,6 +30,17 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
 
+      - name: Smoke test — verify package imports cleanly
+        run: |
+          python -c "
+          import lllm
+          from lllm.core.dialog import Dialog, Message
+          from lllm.core.prompt import Prompt
+          from lllm.core.runtime import Runtime
+          from lllm.invokers.litellm import LiteLLMInvoker
+          print('All core imports OK')
+          "
+
       - name: Run unit tests
         run: |
           pytest tests/units/ -q

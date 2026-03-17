@@ -3,7 +3,6 @@ from __future__ import annotations
 import uuid
 import base64
 import io
-from PIL import Image
 import datetime as dt
 from pathlib import Path
 import copy
@@ -22,6 +21,14 @@ logger = logging.getLogger(__name__)
 if TYPE_CHECKING:
     from lllm.core.prompt import Prompt
 
+
+def _is_pil_image(obj: Any) -> bool:
+    """Return True if *obj* is a PIL/Pillow Image without requiring PIL at import time."""
+    try:
+        from PIL import Image
+        return isinstance(obj, Image.Image)
+    except ImportError:
+        return False
 
 
 class TokenLogprob(BaseModel):
@@ -335,7 +342,7 @@ class Dialog:
 
     def put_image(
         self,
-        image: Union[str, Path, Image.Image],
+        image: Union[str, Path, Any],
         caption: str = None,
         name: str = 'user',
         metadata: Optional[Dict[str, Any]] = None,
@@ -356,7 +363,7 @@ class Dialog:
         if isinstance(image, Path):
             with image.open('rb') as f:
                 image_base64 = base64.b64encode(f.read()).decode('utf-8')
-        elif isinstance(image, Image.Image):
+        elif _is_pil_image(image):
             buf = io.BytesIO()
             fmt = image.format or 'PNG'
             image.save(buf, format=fmt)
