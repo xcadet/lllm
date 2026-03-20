@@ -1,8 +1,8 @@
 # Welcome to LLLM
 
 <p align="center">
-  <img src="assets/LLLM-logo.png#only-light" alt="LLLM Logo" width="200"/>
-  <img src="assets/LLLM-logo-white.png#only-dark" alt="LLLM Logo" width="200"/>
+  <img src="assets/LLLM-logo.png#only-light" alt="LLLM Logo" width="600"/>
+  <img src="assets/LLLM-logo-white.png#only-dark" alt="LLLM Logo" width="600"/>
 </p>
 
 **LLLM** (Low-Level Language Model) is a lightweight framework for building advanced agentic systems. Go from a 5-line prototype to a production multi-agent system without rewriting anything — just add structure as complexity grows.
